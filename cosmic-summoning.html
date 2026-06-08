@@ -3,15 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Cosmic Summoning — Heavy Pixel Scene | pixel-art-meta</title>
+<title>Cosmic Summoning — Structured Static Frame | pixel-art-meta</title>
 <style>
-  html,body{margin:0;height:100%;background:#000;overflow:hidden}
-  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+  html,body{margin:0;background:#06040c}
+  #wrap{display:block;width:100%}
   canvas{
-    image-rendering:pixelated; image-rendering:crisp-edges;
     display:block;
-    width:100vw;height:56.25vw;          /* 16:9 */
-    max-height:100vh;max-width:177.78vh;
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    width:100%; height:auto;        /* scale up, keep crisp */
   }
 </style>
 </head>
@@ -20,286 +19,162 @@
 
 <script>
 /* ======================================================================
-   COSMIC SUMMONING  —  heavy, high-density retro pixel scene (static).
-   Internal res 320x180, upscaled with image-rendering: pixelated.
-   Energy is built as VOLUME: turbulent value-noise fields + thick blocky
-   stamps, driven hot so large areas saturate into chunky color bands.
-   Pipeline: additive HDR buffer -> exposure curve -> clustered-dot
-   (halftone) dither -> nearest-color quantize to a saturated retro palette.
+   COSMIC SUMMONING  — deterministic, geometric static frame.
+   480x270 base, drawn with direct integer pixel ops into one palette of
+   flat retro colors. No noise, no additive HDR, no dithering — every
+   shape is placed by fixed layout math so the composition is predictable.
    ====================================================================== */
-const IW = 320, IH = 180;
+const IW = 480, IH = 270;
+const img = new Uint8ClampedArray(IW*IH*4);
 
-/* ---- saturated retro palette (anchored on the requested colors) -------- */
-const PAL = [
-  [5,3,10],       // void black
-  [26,10,52],     // deep indigo  (shadow of #4B0082)
-  [75,0,130],     // #4B0082 indigo
-  [106,31,176],   // mid purple
-  [138,43,226],   // #8A2BE2 purple
-  [186,104,255],  // bright violet
-  [222,160,255],  // pale violet highlight
-  [120,30,8],     // rust / dark orange
-  [255,69,0],     // #FF4500 orange-red
-  [255,122,0],    // orange
-  [255,180,30],   // amber
-  [255,215,0],    // #FFD700 gold
-  [255,240,150],  // pale gold
-  [255,255,255],  // #FFF white
-  [64,44,28],     // rock dark
-  [120,92,56],    // rock lit
-];
-const SIL = PAL[0];
+/* ---- flat retro palette ---------------------------------------------- */
+const C = {
+  bg:      [10, 7, 18],
+  black:   [0, 0, 0],
+  white:   [255,255,255],
+  cream:   [255,244,180],
+  yellow:  [255,221,0],     // #FFD700
+  orangeL: [255,138,24],
+  orange:  [255,69,0],      // #FF4500
+  orangeD: [176,58,12],
+  violetL: [199,141,255],
+  purple:  [138,43,226],    // #8A2BE2
+  indigo:  [75,0,130],      // #4B0082
+  indigoD: [40,8,74],
+  rock:    [110,78,44],
+  rockL:   [150,112,64],
+  rockD:   [60,40,22],
+};
 
-/* ---- deterministic RNG ------------------------------------------------- */
-function mulberry32(a){ return function(){
-  a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
-  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296;
-};}
-
-/* ---- value-noise / fbm for volumetric energy --------------------------- */
-function hash(x,y){ let n=(x|0)*374761393+(y|0)*668265263; n=(n^(n>>13))*1274126177; return ((n^(n>>16))>>>0)/4294967296; }
-function vnoise(x,y){
-  const xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi;
-  const tl=hash(xi,yi), tr=hash(xi+1,yi), bl=hash(xi,yi+1), br=hash(xi+1,yi+1);
-  const u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
-  return tl*(1-u)*(1-v)+tr*u*(1-v)+bl*(1-u)*v+br*u*v;
-}
-function fbm(x,y){ let s=0,a=0.5,f=1; for(let i=0;i<4;i++){ s+=a*vnoise(x*f,y*f); f*=2; a*=0.5; } return s; }
-
-/* ---- buffers ----------------------------------------------------------- */
-const acc  = new Float32Array(IW*IH*3);
-const sBuf = new Uint8Array(IW*IH);
-const sCol = new Uint8Array(IW*IH*3);
-
-function addLight(x,y,r,g,b){ x|=0;y|=0; if(x<0||y<0||x>=IW||y>=IH) return; const i=(y*IW+x)*3; acc[i]+=r; acc[i+1]+=g; acc[i+2]+=b; }
-function setSolid(x,y,c){ x|=0;y|=0; if(x<0||y<0||x>=IW||y>=IH) return; const i=y*IW+x; sBuf[i]=1; sCol[i*3]=c[0]; sCol[i*3+1]=c[1]; sCol[i*3+2]=c[2]; }
-
-/* ---- thick blocky stamps ---------------------------------------------- */
-function square(cx,cy,half,col,inten){
-  cx|=0; cy|=0;
-  for(let y=cy-half;y<=cy+half;y++) for(let x=cx-half;x<=cx+half;x++)
-    addLight(x,y, col[0]*inten, col[1]*inten, col[2]*inten);
-}
-function blob(cx,cy,rad,col,inten,noisy){
-  const x0=Math.floor(cx-rad), x1=Math.ceil(cx+rad), y0=Math.floor(cy-rad), y1=Math.ceil(cy+rad);
+/* ---- primitives (all integer, hard-edged) ----------------------------- */
+function px(x,y,c){ x=Math.round(x); y=Math.round(y); if(x<0||y<0||x>=IW||y>=IH) return;
+  const i=(y*IW+x)*4; img[i]=c[0]; img[i+1]=c[1]; img[i+2]=c[2]; img[i+3]=255; }
+function disc(cx,cy,r,c){ cx=Math.round(cx); cy=Math.round(cy);
+  for(let y=-r;y<=r;y++) for(let x=-r;x<=r;x++) if(x*x+y*y<=r*r) px(cx+x,cy+y,c); }
+function ringBand(cx,cy,rOut,rIn,c){ cx=Math.round(cx); cy=Math.round(cy);
+  for(let y=-rOut;y<=rOut;y++) for(let x=-rOut;x<=rOut;x++){ const d=x*x+y*y;
+    if(d<=rOut*rOut && d>=rIn*rIn) px(cx+x,cy+y,c); } }
+function capsule(x0,y0,x1,y1,r,c){ const L=Math.hypot(x1-x0,y1-y0), N=Math.ceil(L);
+  for(let s=0;s<=N;s++){ const k=s/N; disc(x0+(x1-x0)*k, y0+(y1-y0)*k, r, c); } }
+function trap(yt,yb,xtl,xtr,xbl,xbr,c){ for(let y=yt;y<=yb;y++){ const t=(y-yt)/(yb-yt);
+  const xl=Math.round(xtl+(xbl-xtl)*t), xr=Math.round(xtr+(xbr-xtr)*t);
+  for(let x=xl;x<=xr;x++) px(x,y,c); } }
+// solid diagonal stream with a bright centre line and indigo edges
+function stream(ax,ay,bx,by,halfW){
+  const x0=Math.min(ax,bx)-halfW, x1=Math.max(ax,bx)+halfW;
+  const y0=Math.min(ay,by)-halfW, y1=Math.max(ay,by)+halfW;
+  const vx=bx-ax, vy=by-ay, L2=vx*vx+vy*vy;
   for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
-    const dx=x-cx, dy=y-cy, d=Math.sqrt(dx*dx+dy*dy); if(d>rad) continue;
-    let f=1-d/rad; f*=f;
-    if(noisy) f*=0.45+0.85*fbm(x*0.10+noisy, y*0.10-noisy);
-    if(f<=0) continue;
-    addLight(x,y, col[0]*f*inten, col[1]*f*inten, col[2]*f*inten);
+    let t=((x-ax)*vx+(y-ay)*vy)/L2; t=t<0?0:t>1?1:t;
+    const px_=ax+vx*t, py_=ay+vy*t, d=Math.hypot(x-px_,y-py_);
+    if(d>halfW) continue;
+    let c;
+    if(d>=halfW-2) c=C.indigoD;
+    else if(d>=halfW-5) c=C.indigo;
+    else if(d<=2.5) c=C.violetL;
+    else c=C.purple;
+    px(x,y,c);
   }
 }
-
-/* ---- thick, erratic lightning cluster --------------------------------- */
-function boltThick(x0,y0,x1,y1,o){
-  const rng=o.rng, col=o.col, halo=o.halo||col, w=o.width||3, inten=o.inten||1;
-  const jit=o.jit||1.1, branch=o.branch||0;
-  let x=x0, y=y0;
-  const dist=Math.hypot(x1-x0,y1-y0), N=Math.ceil(dist*1.4)+4;
-  for(let i=0;i<N;i++){
-    const tx=x1-x, ty=y1-y, tl=Math.hypot(tx,ty)||1;
-    const pull=0.45;
-    x += (tx/tl)*pull + (rng()*2-1)*jit;
-    y += (ty/tl)*pull + (rng()*2-1)*jit;
-    const ww = Math.max(1, w + (rng()<0.4? (rng()<0.5?1:-1):0));   // fluctuating thickness
-    square(x,y, ww+1, halo, inten*0.28);                            // soft volume
-    square(x,y, ww,   col,  inten);                                 // bright core
-    if(rng()<0.18) addLight(x|0, y|0, 1.4,1.4,1.4);                 // white-hot speckle
-    if(branch>0 && rng()<0.08){
-      boltThick(x,y, x+(rng()*46-23), y+(rng()*46-23),
-        {rng, col, halo, width:Math.max(1,w-1), inten:inten*0.7, jit:jit*1.2, branch:branch-1});
-    }
-    if(Math.hypot(x1-x,y1-y) < w) break;
-  }
-}
-
-/* ---- blazing crescent sun (white -> gold -> orange -> red rim) --------- */
-function crescentSun(cx,cy,outerR,innerR,base,inten){
-  const C_WHITE=[1,1,1], C_GOLD=[1,.84,.18], C_ORANGE=[1,.42,.05], C_RED=[.9,.16,.04];
-  for(let y=cy-outerR-1;y<=cy+outerR+1;y++) for(let x=cx-outerR-1;x<=cx+outerR+1;x++){
-    const dx=x-cx, dy=y-cy, d=Math.sqrt(dx*dx+dy*dy);
-    if(d<innerR-1 || d>outerR+1) continue;
-    const ang=Math.atan2(dy,dx);
-    const cres=0.18+0.82*(0.5+0.5*Math.cos(ang-base));            // crescent weighting
-    const t=(d-innerR)/(outerR-innerR);
-    const rf=Math.sin(Math.max(0,Math.min(1,t))*Math.PI);         // fat in the middle of the band
-    let col;
-    if(t<0.30) col=mix(C_WHITE,C_GOLD,t/0.30);
-    else if(t<0.62) col=mix(C_GOLD,C_ORANGE,(t-0.30)/0.32);
-    else col=mix(C_ORANGE,C_RED,(t-0.62)/0.38);
-    const n=0.6+0.7*fbm(x*0.18+11, y*0.18-7);
-    const e=cres*rf*inten*n;
-    addLight(x,y, col[0]*e, col[1]*e, col[2]*e);
-  }
-  blob(cx,cy, innerR*0.9, [1,1,.8], 1.1);                          // inner glow
-  square(cx,cy,1,[1,1,1],2);
-}
-function mix(a,b,t){ t=t<0?0:t>1?1:t; return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
-
-/* ---- dense churning spiral galaxy ------------------------------------- */
-function spiralGalaxy(cx,cy,maxR,o){
-  const rng=o.rng, arms=o.arms||2, turns=o.turns||1.7, dir=o.dir||-1, base=o.base||0.5;
-  blob(cx,cy, maxR*1.05, [.30,.08,.55], 0.7, 5);                   // indigo nebula halo
-  for(let arm=0; arm<arms; arm++){
-    const a0=base + arm*(Math.PI*2/arms);
-    for(let t=0.06; t<turns*Math.PI*2; t+=0.045){
-      const f=t/(turns*Math.PI*2), r=maxR*f;
-      const a=dir*t + a0;
-      const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
-      const ar=Math.max(1.4, 5.5*(1-f*0.7));                       // thick near core
-      let col;
-      if(f<0.25) col=mix([1,.9,.55],[1,.45,.08],f/0.25);           // hot inner
-      else if(f<0.6) col=mix([.74,.26,.9],[.54,.17,.89],(f-0.25)/0.35); // violet/purple
-      else col=mix([.40,.10,.62],[.20,.03,.45],(f-0.6)/0.4);       // indigo outer
-      blob(x,y, ar, col, 0.95*(1-f*0.35), 3+arm);
-      if(rng()<0.10) square(x,y,1,[1,1,1],1.2);                    // sparkle in the arms
-    }
-  }
-  blob(cx,cy, maxR*0.34, [1,.95,.6], 1.5);                         // solid bright core
-  blob(cx,cy, maxR*0.15, [1,1,1], 2.0);
-}
-
-/* ---- billowing diagonal energy cloud (volume, not a string) ----------- */
-function cloudFlare(sx,sy,ex,ey,o){
-  const rng=o.rng, strands=o.strands||4, base=o.base||16, inten=o.inten||1, seed=o.seed||0;
-  for(let s=0;s<strands;s++){
-    const offN=(s-(strands-1)/2)*4;
-    const px=-(ey-sy), py=(ex-sx), pl=Math.hypot(px,py)||1;
-    for(let t=0; t<=1; t+=0.012){
-      const billow=(fbm(t*5+seed+s, seed*1.7)-0.5)*34;            // smoky perpendicular drift
-      const cx=sx+(ex-sx)*t + px/pl*(offN+billow);
-      const cy=sy+(ey-sy)*t + py/pl*(offN+billow);
-      const rad=base*(1-0.45*t)*(0.55+0.95*fbm(t*7+seed, s+seed));
-      blob(cx,cy, rad,        [.36,.06,.62], 0.55*inten, 2+seed);  // indigo body
-      blob(cx,cy, rad*0.6,    [.62,.20,.92], 0.6*inten,  4+seed);  // purple mid
-      if(rng()<0.5) blob(cx,cy, rad*0.28, [.85,.55,1], 0.7*inten, 6+seed); // violet core
-      if(rng()<0.12) square(cx,cy,1,[1,1,1],1.3);
+// tight deterministic zig-zag beam, 3-4px thick, core + border
+function zigzag(ax,ay,bx,by,segs,amp,coreCol,edgeCol){
+  const len=Math.hypot(bx-ax,by-ay), nx=-(by-ay)/len, ny=(bx-ax)/len;
+  const pts=[];
+  for(let i=0;i<=segs;i++){ const t=i/segs;
+    const env=Math.sin(t*Math.PI);                       // no offset at the endpoints
+    const off=(i%2? amp:-amp)*env;
+    pts.push([ ax+(bx-ax)*t + nx*off, ay+(by-ay)*t + ny*off ]); }
+  for(let pass=0; pass<2; pass++){
+    const r = pass===0? 2 : 1;                            // border pass then core pass
+    const col = pass===0? edgeCol : coreCol;
+    for(let i=0;i<pts.length-1;i++){
+      const a=pts[i], b=pts[i+1], L=Math.hypot(b[0]-a[0],b[1]-a[1]), N=Math.ceil(L);
+      for(let s=0;s<=N;s++){ const k=s/N; disc(a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k, r, col); }
     }
   }
 }
-
-/* ---- solid raster (silhouette + rocks) -------------------------------- */
-function discSolid(cx,cy,r,col){ for(let y=cy-r;y<=cy+r;y++) for(let x=cx-r;x<=cx+r;x++) if((x-cx)**2+(y-cy)**2<=r*r) setSolid(x,y,col); }
-function capSolid(x0,y0,x1,y1,w,col){ const L=Math.hypot(x1-x0,y1-y0),N=Math.ceil(L); for(let s=0;s<=N;s++){ const k=s/N; discSolid(Math.round(x0+(x1-x0)*k),Math.round(y0+(y1-y0)*k),w,col); } }
-function trapSolid(yt,yb,xtl,xtr,xbl,xbr,col){ for(let y=yt;y<=yb;y++){ const t=(y-yt)/(yb-yt); const xl=Math.round(xtl+(xbl-xtl)*t), xr=Math.round(xtr+(xbr-xtr)*t); for(let x=xl;x<=xr;x++) setSolid(x,y,col); } }
 
 /* ====================================================================== */
 function buildScene(){
-  acc.fill(0); sBuf.fill(0);
-  const rng=mulberry32(7);
+  // background
+  for(let i=0;i<IW*IH;i++){ const j=i*4; img[j]=C.bg[0]; img[j+1]=C.bg[1]; img[j+2]=C.bg[2]; img[j+3]=255; }
 
-  /* faint cosmic nebula so the void has texture, not flat black */
-  for(let y=0;y<IH;y++) for(let x=0;x<IW;x++){
-    const n=fbm(x*0.05, y*0.05);
-    const v=Math.max(0, n-0.55)*0.10;
-    addLight(x,y, v*0.5, v*0.15, v*0.9);
-  }
-
-  /* ---------- dense golden explosion AURA behind the figure ---------- */
-  const ax=160, ay=86, AR=98;
-  for(let y=ay-AR;y<=ay+26;y++) for(let x=ax-AR;x<=ax+AR;x++){
-    const dx=(x-ax), dy=(y-ay)*1.25, d=Math.sqrt(dx*dx+dy*dy); if(d>AR) continue;
-    let f=1-d/AR; f=f*f*f;                                        // steeper falloff -> tighter burst
-    const n=0.30+1.0*fbm(x*0.07+3, y*0.07+9);                     // turbulent flames
-    const e=f*n*0.9;
-    let col;
-    const t=d/AR;
-    if(t<0.26) col=[1,.85,.45];
-    else if(t<0.55) col=[1,.55,.10];
-    else col=[1,.26,.04];
-    addLight(x,y, col[0]*e, col[1]*e, col[2]*e);
-  }
-  blob(ax,ay-6, 20, [1,.95,.7], 0.7);                              // warm heart (no white blowout)
-
-  /* ---------- thick vertical lightning pillars bursting up ----------- */
-  const pillars=[140,150,160,170,180];
-  for(const px of pillars){
-    boltThick(px, 108, px+(rng()*14-7), 8+rng()*16,
-      {rng, col:[1,1,.85], halo:[1,.6,.12], width:2, inten:1.25, jit:1.6, branch:1});
-  }
-
-  /* ---------- massive billowing ground waves (both corners) ---------- */
-  cloudFlare(  4,178, 150, 92, {rng, strands:5, base:20, inten:1.15, seed:1});
-  cloudFlare( -6,162, 128,116, {rng, strands:4, base:17, inten:0.95, seed:9});
-  cloudFlare(316,178, 170, 92, {rng, strands:5, base:20, inten:1.15, seed:17});
-  cloudFlare(326,162, 192,116, {rng, strands:4, base:17, inten:0.95, seed:23});
-
-  /* ---------- LEFT: blazing crescent sun + thick golden trunk -------- */
-  const lHand=[98,80], lOrb=[76,42];
-  crescentSun(lOrb[0],lOrb[1], 23, 10, Math.PI*0.7, 2.1);
-  boltThick(lHand[0],lHand[1], lOrb[0]+7,lOrb[1]+13,
-    {rng, col:[1,1,.9], halo:[1,.5,.1], width:3, inten:1.6, jit:1.8, branch:2});
-
-  /* ---------- RIGHT: spiral galaxy + violet/white crackling trunk ---- */
-  const rHand=[220,80], rOrb=[244,44];
-  spiralGalaxy(rOrb[0],rOrb[1], 27, {rng, arms:2, turns:1.85, dir:-1, base:0.6});
-  boltThick(rHand[0],rHand[1], rOrb[0]-7,rOrb[1]+13,
-    {rng, col:[1,1,1], halo:[.6,.22,1], width:3, inten:1.6, jit:1.8, branch:2});
-
-  /* ---------- floating blocky debris (lower third) ------------------- */
-  const rocks=[[44,150,7],[80,166,4],[120,158,5],[210,162,5],[262,150,6],[300,140,4],[150,170,3],[176,166,4],[28,138,5]];
-  for(const [rx,ry,rr] of rocks){
-    for(let y=ry-rr;y<=ry+rr;y++) for(let x=rx-rr;x<=rx+rr;x++){
-      const dx=(x-rx)/rr, dy=(y-ry)/rr, d=dx*dx+dy*dy; if(d>1) continue;
-      const lit=(-dx*0.5-dy*0.5);
-      const col = d>0.72 ? (lit>0.1?PAL[8]:PAL[7]) : (lit>0.05?PAL[15]:PAL[14]);
-      setSolid(x,y,col);
+  /* -- (a) vertical lightning pillars behind the figure ---------------- */
+  const pillarX=[205,222,240,258,275];
+  for(let p=0;p<pillarX.length;p++){
+    const baseX=pillarX[p];
+    for(let y=8;y<=150;y++){
+      const cx=baseX + Math.round(1.4*Math.sin((y+p*17)*0.5));
+      px(cx-2,y,C.orange); px(cx+2,y,C.orange);            // thin orange border
+      px(cx-1,y,C.yellow); px(cx+1,y,C.yellow);            // yellow body
+      px(cx,  y,C.cream);                                  // bright core
     }
   }
 
-  /* ---------- scattered single-pixel hot sparks in negative space ---- */
-  for(let i=0;i<420;i++){
-    const x=rng()*IW, y=rng()*IH;
-    const dc=Math.hypot(x-160,y-92);
-    if(rng() > 0.25+0.6*Math.max(0,1-dc/140)) continue;            // denser near the action
-    const r=rng();
-    const c = r<0.5?[1.4,1.4,1.0] : r<0.8?[1.4,0.8,0.1] : [0.7,0.3,1.3];
-    addLight(x|0, y|0, c[0],c[1],c[2]);
+  /* -- (b) lower ground waves — solid diagonal streams ----------------- */
+  stream(0,270, 200,190, 11);     // bottom-left  -> left armpit
+  stream(480,270, 280,190, 11);   // bottom-right -> right armpit
+
+  /* -- (c) LEFT orb: concentric crescent sun --------------------------- */
+  // banded sun (outer dark-orange -> orange -> yellow -> white core)
+  disc(130,60, 30, C.orangeD);
+  disc(130,60, 25, C.orange);
+  disc(130,60, 19, C.yellow);
+  disc(130,60, 10, C.cream);
+  disc(130,60, 5,  C.white);
+  // carve a crescent by knocking out an offset disc with the background
+  disc(143,49, 24, C.bg);
+
+  /* -- (d) RIGHT orb: Archimedean spiral galaxy ------------------------ */
+  const gx=350, gy=60, maxR=30, turns=2.6, b=maxR/(turns*Math.PI*2);
+  // indigo disc backing so the arms read as a galaxy body
+  disc(gx,gy, maxR, C.indigoD);
+  for(let arm=0; arm<2; arm++){
+    const a0=arm*Math.PI;
+    for(let th=0; th<turns*Math.PI*2; th+=0.06){
+      const r=b*th, a=th+a0, x=gx+Math.cos(a)*r, y=gy+Math.sin(a)*r;
+      const f=th/(turns*Math.PI*2);
+      let col, rad;
+      if(f<0.20){ col=C.yellow; rad=3; }
+      else if(f<0.30){ col=C.orangeL; rad=3; }
+      else { col = (f<0.65? C.purple : C.indigo); rad = (f<0.65?3:2); }
+      disc(x,y, rad, col);
+    }
+  }
+  disc(gx,gy, 7, C.yellow);        // solid bright core
+  disc(gx,gy, 4, C.cream);
+  disc(gx,gy, 2, C.white);
+
+  /* -- (e) hand-to-orb energy beams ------------------------------------ */
+  zigzag(160,120, 130,60, 7, 8, C.cream,  C.orange);   // left: golden zig-zag
+  zigzag(320,120, 350,60, 7, 8, C.white,  C.purple);   // right: violet zig-zag
+
+  /* -- (f) floating debris rocks (8) ----------------------------------- */
+  const rocks=[[64,236,5],[112,250,4],[152,226,4],[206,252,3],[300,228,4],[342,250,5],[388,232,4],[428,252,3]];
+  for(const [rx,ry,rr] of rocks){
+    disc(rx,ry, rr, C.rockD);
+    disc(rx,ry, rr-1, C.rock);
+    disc(rx-1,ry-1, Math.max(1,rr-3), C.rockL);          // simple top-left highlight
   }
 
-  /* ---------- CENTRAL SILHOUETTE (solid, on top) --------------------- */
-  capSolid(152,180, 154,158, 8, SIL);
-  capSolid(168,180, 166,158, 8, SIL);
-  trapSolid(105,160, 140,180, 150,170, SIL);
-  discSolid(143,107,10,SIL); discSolid(177,107,10,SIL);
-  capSolid(160,108,160,98,6,SIL);
-  discSolid(160,85,12,SIL);
-  capSolid(146,107, 100,80, 7, SIL);          // left arm
-  capSolid(174,107, 220,80, 7, SIL);          // right arm
-  discSolid(100,79,7,SIL); discSolid(220,79,7,SIL);
-
-  return resolve();
+  /* -- (g) CENTRAL SILHOUETTE (solid black, on top) -------------------- */
+  trap(168,270, 214,266, 224,256, C.black);              // torso + legs block
+  disc(215,170,13,C.black); disc(265,170,13,C.black);    // shoulders
+  capsule(240,168,240,156,7,C.black);                    // neck
+  disc(240,150,16,C.black);                              // head
+  capsule(218,168, 160,120, 8, C.black);                 // left arm  -> hand (160,120)
+  capsule(262,168, 320,120, 8, C.black);                 // right arm -> hand (320,120)
+  disc(160,120,8,C.black); disc(320,120,8,C.black);      // fists
 }
 
-/* ---- exposure + clustered-dot (halftone) dither + quantize ------------ */
-const CLUSTER8=[ 24,10,12,26,35,47,49,37, 8,0,2,14,45,59,61,51,
-  22,6,4,16,43,57,63,53, 30,20,18,28,33,41,55,39,
-  34,46,48,36,25,11,13,27, 44,58,60,50,9,1,3,15,
-  42,56,62,52,23,7,5,17, 32,40,54,38,31,21,19,29 ];
-function nearest(r,g,b){ let bi=0,bd=1e12; for(let i=0;i<PAL.length;i++){ const p=PAL[i]; const d=(p[0]-r)**2+(p[1]-g)**2+(p[2]-b)**2; if(d<bd){bd=d;bi=i;} } return PAL[bi]; }
-function resolve(){
-  const img=new Uint8ClampedArray(IW*IH*4);
-  const DITH=40;
-  for(let y=0;y<IH;y++) for(let x=0;x<IW;x++){
-    const i=y*IW+x, j=i*4;
-    if(sBuf[i]){ img[j]=sCol[i*3]; img[j+1]=sCol[i*3+1]; img[j+2]=sCol[i*3+2]; img[j+3]=255; continue; }
-    let r=acc[i*3], g=acc[i*3+1], b=acc[i*3+2];
-    r=1-Math.exp(-r*0.85); g=1-Math.exp(-g*0.85); b=1-Math.exp(-b*0.85);   // filmic-ish exposure
-    const d=(CLUSTER8[(y&7)*8+(x&7)]/64-0.5)*DITH;
-    const c=nearest(r*255+d, g*255+d, b*255+d);
-    img[j]=c[0]; img[j+1]=c[1]; img[j+2]=c[2]; img[j+3]=255;
-  }
-  return img;
-}
-
-/* ---- DOM bootstrap (browser only) ------------------------------------- */
+/* ---- DOM bootstrap ---------------------------------------------------- */
 if(typeof document!=='undefined'){
   const cvs=document.getElementById('screen');
   cvs.width=IW; cvs.height=IH;
   const ctx=cvs.getContext('2d');
   ctx.imageSmoothingEnabled=false;
-  ctx.putImageData(new ImageData(buildScene(), IW, IH), 0, 0);
+  buildScene();
+  ctx.putImageData(new ImageData(img, IW, IH), 0, 0);
 }
 </script>
 </body>
