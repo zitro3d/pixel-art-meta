@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cosmic Summoning — Static Pixel Scene | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000}
+  canvas{
+    image-rendering:pixelated;
+    image-rendering:crisp-edges;
+    display:block;
+    width:100vw;height:56.25vw;      /* 16:9 responsive */
+    max-height:100vh;max-width:177.78vh;
+    box-shadow:0 0 0 1px #1a1430;
+  }
+</style>
+</head>
+<body>
+  <div id="wrap"><canvas id="screen"></canvas></div>
+
+<script>
+/* ======================================================================
+   COSMIC SUMMONING — static 16-bit-style pixel scene.
+   Pipeline: additive light buffer -> Reinhard tonemap ->
+             Bayer 4x4 dither -> nearest-color quantize to a strict palette.
+   Authored at 480x270 (16:9) and upscaled with image-rendering: pixelated.
+   ====================================================================== */
+const IW = 480, IH = 270;
+
+/* ---- strict retro palette (deep black, indigo/violet, orange/gold, white) */
+const PAL = [
+  [6,4,12],      [22,13,48],    [58,29,138],   [106,63,208],
+  [154,108,255], [201,128,255], [120,40,16],   [255,92,20],
+  [255,150,42],  [255,200,72],  [255,232,140], [255,246,212],
+  [255,255,255], [70,54,40],    [122,98,66],
+];
+const SIL = PAL[0];                 // silhouette / deep black
+
+/* ---- deterministic RNG so the frame is identical every render ---------- */
+function mulberry32(a){ return function(){
+  a|=0; a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
+  return ((t^t>>>14)>>>0)/4294967296;
+};}
+
+/* ---- light accumulation buffers --------------------------------------- */
+const acc  = new Float32Array(IW*IH*3);   // additive HDR light
+const sBuf = new Uint8Array(IW*IH);        // solid overlay (1=use sCol)
+const sCol = new Uint8Array(IW*IH*3);      // solid overlay colors
+
+function addLight(x,y,r,g,b){
+  x|=0; y|=0; if(x<0||y<0||x>=IW||y>=IH) return;
+  const i=(y*IW+x)*3; acc[i]+=r; acc[i+1]+=g; acc[i+2]+=b;
+}
+function glow(cx,cy,rad,col,inten){
+  const x0=Math.max(0,Math.floor(cx-rad)), x1=Math.min(IW-1,Math.ceil(cx+rad));
+  const y0=Math.max(0,Math.floor(cy-rad)), y1=Math.min(IH-1,Math.ceil(cy+rad));
+  const r2=rad*rad;
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+    const dx=x-cx, dy=y-cy, d2=dx*dx+dy*dy; if(d2>r2) continue;
+    const f=Math.pow(1-Math.sqrt(d2)/rad,2)*inten;
+    addLight(x,y, col[0]*f, col[1]*f, col[2]*f);
+  }
+}
+function setSolid(x,y,col){
+  x|=0; y|=0; if(x<0||y<0||x>=IW||y>=IH) return;
+  const i=y*IW+x; sBuf[i]=1; sCol[i*3]=col[0]; sCol[i*3+1]=col[1]; sCol[i*3+2]=col[2];
+}
+
+/* ---- jagged lightning / energy beam ----------------------------------- */
+function bolt(x0,y0,x1,y1,opt){
+  const rng=opt.rng, segs=opt.segs||10, jag=opt.jag||9;
+  const core=opt.core||[1,1,1], halo=opt.halo||[1,.6,.2];
+  const cr=opt.coreR||1.2, hr=opt.haloR||5, hi=opt.inten||1, taper=opt.taper!==false;
+  // build jagged polyline
+  const pts=[[x0,y0]]; const nx=-(y1-y0), ny=(x1-x0); const nl=Math.hypot(nx,ny)||1;
+  for(let i=1;i<segs;i++){
+    const t=i/segs;
+    const env = taper ? Math.sin(t*Math.PI) : 1;       // less wiggle at the ends
+    const off = (rng()*2-1)*jag*env;
+    pts.push([ x0+(x1-x0)*t + nx/nl*off, y0+(y1-y0)*t + ny/nl*off ]);
+  }
+  pts.push([x1,y1]);
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1], len=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    const steps=Math.max(2,Math.ceil(len));
+    const widF = taper ? (1-Math.abs(i/(pts.length-1)*2-1)*0.45) : 1;
+    for(let s=0;s<=steps;s++){
+      const k=s/steps, x=a[0]+(b[0]-a[0])*k, y=a[1]+(b[1]-a[1])*k;
+      glow(x,y, hr*widF, halo, 0.5*hi);
+      glow(x,y, cr,       core, 1.4*hi);
+    }
+  }
+}
+
+/* ---- swirling spiral orb (galaxy) ------------------------------------- */
+function spiralOrb(cx,cy,maxR,opt){
+  const arms=opt.arms||2, turns=opt.turns||1.6, dir=opt.dir||1, base=opt.base||0;
+  const inner=opt.inner||[1,.9,.5], mid=opt.mid||[1,.5,.1], outer=opt.outer||[.4,.2,.9];
+  const dense=opt.dense||0.03;
+  for(let arm=0; arm<arms; arm++){
+    const a0 = base + arm*(Math.PI*2/arms);
+    for(let t=0.05; t<turns*Math.PI*2; t+=dense){
+      const r=maxR*(t/(turns*Math.PI*2));
+      const a=dir*t + a0;
+      const x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+      const f=r/maxR;
+      let col;
+      if(f<0.4) col=[ lerp(inner[0],mid[0],f/0.4), lerp(inner[1],mid[1],f/0.4), lerp(inner[2],mid[2],f/0.4) ];
+      else       col=[ lerp(mid[0],outer[0],(f-0.4)/0.6), lerp(mid[1],outer[1],(f-0.4)/0.6), lerp(mid[2],outer[2],(f-0.4)/0.6) ];
+      glow(x,y, 2.4, col, 0.9*(1-f*0.4));
+    }
+  }
+  // hot core
+  glow(cx,cy, maxR*0.34, opt.coreCol||[1,1,.85], 1.4);
+  glow(cx,cy, maxR*0.13, [1,1,1], 1.8);
+}
+const lerp=(a,b,t)=>a+(b-a)*t;
+
+/* ---- crescent / comet orb -------------------------------------------- */
+function crescentOrb(cx,cy,rad,col,opt){
+  const sweep=opt.sweep||Math.PI*1.5, base=opt.base||Math.PI*0.7, dir=opt.dir||1;
+  for(let t=0;t<sweep;t+=0.05){
+    const a=base+dir*t;
+    const rr=rad*(0.7+0.3*t/sweep);
+    const x=cx+Math.cos(a)*rr, y=cy+Math.sin(a)*rr;
+    const fade=Math.sin((t/sweep)*Math.PI);
+    glow(x,y, 3.2, col, 1.0*fade+0.25);
+    glow(x,y, 1.2, [1,1,.92], 0.9*fade);
+  }
+  glow(cx,cy, rad*0.5, col, 0.7);
+  glow(cx,cy, rad*0.22, [1,1,.9], 1.3);
+}
+
+/* ---- silhouette + rock raster helpers --------------------------------- */
+function discSolid(cx,cy,r,col){
+  for(let y=cy-r;y<=cy+r;y++) for(let x=cx-r;x<=cx+r;x++){
+    if((x-cx)**2+(y-cy)**2<=r*r) setSolid(x,y,col);
+  }
+}
+function capsuleSolid(x0,y0,x1,y1,w,col){
+  const len=Math.hypot(x1-x0,y1-y0), steps=Math.ceil(len);
+  for(let s=0;s<=steps;s++){ const k=s/steps; discSolid(Math.round(x0+(x1-x0)*k),Math.round(y0+(y1-y0)*k),w,col); }
+}
+function trapSolid(yTop,yBot,xtl,xtr,xbl,xbr,col){
+  for(let y=yTop;y<=yBot;y++){ const t=(y-yTop)/(yBot-yTop);
+    const xl=Math.round(lerp(xtl,xbl,t)), xr=Math.round(lerp(xtr,xbr,t));
+    for(let x=xl;x<=xr;x++) setSolid(x,y,col);
+  }
+}
+
+/* ====================================================================== */
+/*  BUILD THE SCENE                                                       */
+/* ====================================================================== */
+function buildScene(){
+  acc.fill(0); sBuf.fill(0);
+  const rng=mulberry32(1337);
+
+  // faint cosmic ambient so the void isn't flat
+  for(let y=0;y<IH;y++) for(let x=0;x<IW;x++){
+    const v=0.012*Math.pow(1-Math.min(1,Math.hypot((x-240)/300,(y-150)/200)),2);
+    addLight(x,y, v*0.4, v*0.25, v*0.9);
+  }
+
+  // hot backlight bloom radiating from behind the figure (ref #2)
+  glow(240,128, 170, [1,.5,.15], 0.55);
+  glow(240,118, 78,  [1,.78,.35], 0.5);
+  glow(240,110, 34,  [1,.92,.6],  0.6);
+
+  /* -- vertical golden lightning rising from behind the figure --------- */
+  const upX=[224,234,246,258];
+  for(let i=0;i<upX.length;i++){
+    bolt(upX[i], 162, upX[i]+(rng()*10-5), 34+rng()*22, {
+      rng, segs:10, jag:5, taper:false,
+      core:[1,1,.92], halo:[1,.62,.16], coreR:1.2, haloR:3.6, inten:1.25,
+    });
+  }
+
+  /* -- diagonal energy waves rushing up from the bottom corners -------- */
+  // left-bottom violet/pink flares -> toward center
+  bolt(8,262, 196,150, {rng,segs:14,jag:16,core:[1,.95,1],halo:[.45,.22,1],coreR:1.4,haloR:8,inten:1.05});
+  bolt(2,250, 168,176, {rng,segs:12,jag:14,core:[1,.8,1],halo:[.65,.25,1],coreR:1.1,haloR:6,inten:0.8});
+  bolt(26,268, 150,205, {rng,segs:10,jag:10,core:[1,.85,1],halo:[.8,.35,1],coreR:1.0,haloR:5,inten:0.7});
+  // right-bottom violet/pink flares -> toward center
+  bolt(472,262, 286,150, {rng,segs:14,jag:16,core:[1,.95,1],halo:[.5,.25,1],coreR:1.4,haloR:8,inten:1.05});
+  bolt(478,250, 312,176, {rng,segs:12,jag:14,core:[1,.8,1],halo:[.6,.28,1],coreR:1.1,haloR:6,inten:0.8});
+  bolt(454,268, 330,205, {rng,segs:10,jag:10,core:[1,.85,1],halo:[.85,.4,1],coreR:1.0,haloR:5,inten:0.7});
+
+  // scattered thin golden filaments fanning up-and-out from behind the figure
+  for(let i=0;i<4;i++){
+    const ang=-Math.PI/2 + (i-1.5)*0.5;
+    const sx=240+(rng()*20-10), sy=150;
+    bolt(sx,sy, sx+Math.cos(ang)*150, sy+Math.sin(ang)*120, {
+      rng, segs:9, jag:8, core:[1,1,.9], halo:[1,.55,.12], coreR:1.0, haloR:3, inten:0.7,
+    });
+  }
+
+  /* -- LEFT hand: golden crescent comet orb + golden beam -------------- */
+  const lHand=[150,118], lOrb=[128,66];
+  crescentOrb(lOrb[0],lOrb[1], 30, [1,.6,.12], {sweep:Math.PI*1.7, base:Math.PI*0.55, dir:1});
+  glow(lOrb[0],lOrb[1], 40, [1,.45,.1], 0.5);
+  bolt(lHand[0],lHand[1], lOrb[0]+8,lOrb[1]+16, {
+    rng, segs:11, jag:11, core:[1,1,.9], halo:[1,.55,.12], coreR:1.4, haloR:5.5, inten:1.2,
+  });
+
+  /* -- RIGHT hand: purple/orange spiral galaxy + violet-white beam ----- */
+  const rHand=[330,118], rOrb=[350,66];
+  spiralOrb(rOrb[0],rOrb[1], 32, {
+    arms:2, turns:1.7, dir:-1, base:0.6, dense:0.028,
+    inner:[1,.95,.7], mid:[1,.5,.12], outer:[.5,.25,1], coreCol:[1,.85,.5],
+  });
+  glow(rOrb[0],rOrb[1], 42, [.45,.2,1], 0.5);
+  bolt(rHand[0],rHand[1], rOrb[0]-8,rOrb[1]+16, {
+    rng, segs:11, jag:11, core:[1,1,1], halo:[.55,.28,1], coreR:1.4, haloR:5.5, inten:1.2,
+  });
+
+  /* -- floating pixel rocks / debris in the lower third ---------------- */
+  const rocks=[[70,232,9],[120,250,6],[150,470/2|0,5],[300,236,7],[392,250,11],[430,210,6],[210,255,5],[268,250,6]];
+  for(const [rx,ry,rr] of rocks){
+    for(let y=ry-rr;y<=ry+rr;y++) for(let x=rx-rr;x<=rx+rr*1.1;x++){
+      const dx=(x-rx)/(rr*1.1), dy=(y-ry)/rr; const d=dx*dx+dy*dy; if(d>1) continue;
+      // light comes from lower-center -> rim lit on the inner/upper-center side
+      const lit = (-dx*0.5 - dy*0.6);
+      let col = d>0.78 ? (lit>0.15? PAL[7] : PAL[6]) : (lit>0.1? PAL[14] : PAL[13]);
+      setSolid(x,y,col);
+    }
+  }
+
+  /* -- CENTRAL SILHOUETTE (drawn solid, on top) ------------------------ */
+  // legs / stance (lower body, partly cropped by frame bottom)
+  capsuleSolid(228,270, 232,236, 11, SIL);
+  capsuleSolid(252,270, 248,236, 11, SIL);
+  // torso
+  trapSolid(158,242, 210,270, 224,256, SIL);
+  // shoulders
+  discSolid(214,160,15,SIL); discSolid(266,160,15,SIL);
+  // head + neck
+  capsuleSolid(240,162,240,148,9,SIL);
+  discSolid(240,128,18,SIL);
+  // raised V arms
+  capsuleSolid(218,160, 150,118, 10, SIL);  // left arm
+  capsuleSolid(262,160, 330,118, 10, SIL);  // right arm
+  // fists
+  discSolid(150,116,10,SIL); discSolid(330,116,10,SIL);
+
+  return resolve();
+}
+
+/* ---- tonemap + Bayer dither + palette quantize ------------------------ */
+const BAYER=[0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5];
+function nearest(r,g,b){
+  let best=0, bd=1e12;
+  for(let i=0;i<PAL.length;i++){ const p=PAL[i];
+    const d=(p[0]-r)**2+(p[1]-g)**2+(p[2]-b)**2;
+    if(d<bd){bd=d;best=i;}
+  }
+  return PAL[best];
+}
+function resolve(){
+  const img=new Uint8ClampedArray(IW*IH*4);
+  const DITH=26;
+  for(let y=0;y<IH;y++) for(let x=0;x<IW;x++){
+    const i=y*IW+x, j=i*4;
+    if(sBuf[i]){ img[j]=sCol[i*3]; img[j+1]=sCol[i*3+1]; img[j+2]=sCol[i*3+2]; img[j+3]=255; continue; }
+    let r=acc[i*3], g=acc[i*3+1], b=acc[i*3+2];
+    r=r/(1+r); g=g/(1+g); b=b/(1+b);                       // Reinhard tonemap
+    const d=(BAYER[(y&3)*4+(x&3)]/16-0.5)*DITH;            // ordered dither
+    const c=nearest(r*255+d, g*255+d, b*255+d);
+    img[j]=c[0]; img[j+1]=c[1]; img[j+2]=c[2]; img[j+3]=255;
+  }
+  return img;
+}
+
+/* ====================================================================== */
+/*  DOM bootstrap (browser only)                                          */
+/* ====================================================================== */
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('screen');
+  cvs.width=IW; cvs.height=IH;
+  const ctx=cvs.getContext('2d');
+  ctx.imageSmoothingEnabled=false;
+  const data=buildScene();
+  ctx.putImageData(new ImageData(data, IW, IH), 0, 0);
+}
+</script>
+</body>
+</html>

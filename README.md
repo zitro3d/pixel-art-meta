@@ -23,3 +23,11 @@ A kitbash of a 90s sportbike chassis and a radial aircraft engine. Self-containe
 ![Hover-Bike Kestrel](./hover-bike-preview.png)
 
 Kitbashed parts: radial aero engine (turbine fan + spinner hub + cowl flaps), sportbike teardrop tank with hazard livery, moto saddle re-skinned as an empennage tailfin, twin downward hover nozzles, clip-on bars, and an exposed copper wiring loom.
+
+### Cosmic Summoning — [`cosmic-summoning.html`](./cosmic-summoning.html)
+
+A static 16-bit-style scene: a V-posed silhouette channelling cosmic energy. Self-contained HTML5 Canvas (no dependencies) authored at 480×270 and upscaled with `image-rendering: pixelated`. Rendering pipeline: additive HDR light buffer → Reinhard tonemap → Bayer 4×4 ordered dither → nearest-color quantize to a strict 15-colour retro palette.
+
+![Cosmic Summoning](./cosmic-summoning-preview.png)
+
+Elements: central black silhouette, golden crescent orb (left) and purple/orange spiral galaxy (right) each wired to a hand by a jagged energy beam, a hot golden backlight bloom and vertical lightning behind the figure, violet flares rushing up from the bottom corners, and floating pixel debris.
