@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pixel-art-meta — demos</title>
+<style>
+  :root{--ink:#cdd6e4;--dim:#8a93a8;--cyan:#5fe9f2}
+  html,body{margin:0;background:#0d0b16;color:var(--ink);font:15px/1.6 ui-monospace,Menlo,Consolas,monospace}
+  header{padding:34px 20px 6px;text-align:center}
+  h1{margin:0;font-size:22px;color:#fff;letter-spacing:.5px}
+  header p{margin:6px 0 0;color:var(--dim)}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 16px 70px}
+  h2{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--cyan);margin:34px 0 12px;border-bottom:1px solid #2a2440;padding-bottom:6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+  a.card{display:block;text-decoration:none;color:inherit;background:#171327;border:1px solid #2a2440;border-radius:12px;overflow:hidden;transition:border-color .15s,transform .15s}
+  a.card:hover{border-color:var(--cyan);transform:translateY(-2px)}
+  .thumb{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0a0813;image-rendering:pixelated}
+  .thumb.tall{object-fit:contain}
+  .meta{padding:10px 12px}
+  .meta b{color:#fff}
+  .meta span{display:block;color:var(--dim);font-size:12px;margin-top:2px}
+  .dl{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+  .dl a{color:#0a0813;background:linear-gradient(180deg,#7ff0f8,#1f9fb0);padding:6px 12px;border-radius:8px;text-decoration:none;font-weight:700;font-size:12px}
+  footer{text-align:center;color:#5a6378;font-size:12px;padding:20px}
+  code{color:#9fe3ff}
+</style>
+</head>
+<body>
+  <header>
+    <h1>pixel-art-meta</h1>
+    <p>procedurally generated retro pixel-art demos · HTML5 Canvas</p>
+  </header>
+
+  <div class="wrap">
+
+    <h2>⚡ Lightning Strikes — 4 procedural options</h2>
+    <p style="color:var(--dim);margin-top:0">Every strike is a freshly generated shape (midpoint displacement), 1px style, <code>#0099DB</code> / <code>#2CE8F5</code>, transparent background — rotate &amp; place them in your comp.</p>
+    <div class="grid">
+      <a class="card" href="lightning-strikes.html">
+        <img class="thumb" src="lightning-strikes-preview.png" alt="four lightning options" />
+        <div class="meta"><b>Open the live gallery →</b><span>all 4, regenerating each strike</span></div>
+      </a>
+    </div>
+    <div class="dl">
+      <a href="lightning-A-bolt.gif" download>A · bolt.gif</a>
+      <a href="lightning-B-forked.gif" download>B · forked.gif</a>
+      <a href="lightning-C-heavy.gif" download>C · heavy.gif</a>
+      <a href="lightning-D-wild.gif" download>D · wild.gif</a>
+      <a href="lightning-strike.html">single strike (traced)</a>
+    </div>
+
+    <h2>More demos</h2>
+    <div class="grid">
+      <a class="card" href="power-up.html">
+        <img class="thumb" src="power-up-preview.png" alt="power up" />
+        <div class="meta"><b>Power-Up</b><span>animated electricity aura</span></div>
+      </a>
+      <a class="card" href="cosmic-summoning.html">
+        <img class="thumb" src="cosmic-summoning-preview.png" alt="cosmic summoning" />
+        <div class="meta"><b>Cosmic Summoning</b><span>animated cosmic scene</span></div>
+      </a>
+      <a class="card" href="hover-bike.html">
+        <img class="thumb tall" src="hover-bike-preview.png" alt="hover bike" />
+        <div class="meta"><b>Hover-Bike “Kestrel”</b><span>kitbashed sprite</span></div>
+      </a>
+    </div>
+
+  </div>
+  <footer>github.com/zitro3d/pixel-art-meta</footer>
+</body>
+</html>
