@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Power-Up — Animated Pixel Electricity | pixel-art-meta</title>
+<style>
+  html,body{margin:0;background:#04040c}
+  canvas{ display:block; image-rendering:pixelated; image-rendering:crisp-edges; width:100%; height:auto; margin:0 auto; }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+<script>
+/* ======================================================================
+   POWER-UP — fully procedural animated pixel art (no source image).
+   A hero silhouette charges: energy gathers inward, an aura swells, and
+   electric arcs are REGENERATED every frame (so they snap/flicker like
+   real game lightning), throwing sparks. Additive light buffer -> filmic
+   tonemap, rendered at 256x144 and integer-scaled, smoothing off.
+   ====================================================================== */
+const W=256, H=144, N=W*H;
+const acc=new Float32Array(N*3);
+const sil=new Uint8Array(N);          // silhouette mask
+let edges=[];                         // silhouette edge pixels (for rim bloom)
+let RNG=Math.random;
+
+/* emitters around the body (chest, head, shoulders, fists, hips) */
+const FEET=128;
+const EM=[
+  [128,60],[128,86],            // head, chest
+  [112,80],[144,80],            // shoulders
+  [106,108],[150,108],          // fists
+  [120,104],[136,104],          // hips
+];
+
+/* ---- light + pixel ops ------------------------------------------------ */
+function add(x,y,r,g,b){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H) return; const i=(y*W+x)*3; acc[i]+=r;acc[i+1]+=g;acc[i+2]+=b; }
+function glow(cx,cy,rad,c,inten){
+  const x0=Math.max(0,(cx-rad)|0),x1=Math.min(W-1,(cx+rad)|0),y0=Math.max(0,(cy-rad)|0),y1=Math.min(H-1,(cy+rad)|0);
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){ const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy); if(d>rad)continue;
+    let f=1-d/rad; f*=f; add(x,y,c[0]*f*inten,c[1]*f*inten,c[2]*f*inten); } }
+
+/* ---- colours (as light) ----------------------------------------------- */
+const WHITE=[1,1,1], CYAN=[.45,.85,1], BLUE=[.18,.4,1], PURP=[.55,.25,1], GOLD=[1,.72,.2], ORANGE=[1,.4,.1];
+
+/* ---- regenerated lightning arc (midpoint displacement) ---------------- */
+function arc(x0,y0,x1,y1,disp,col,inten,depth){
+  depth = depth===undefined?1:depth;
+  let pts=[[x0,y0],[x1,y1]];
+  for(let it=0;it<5;it++){ const np=[];
+    for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1]; np.push(a);
+      const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,nx=-(b[1]-a[1]),ny=(b[0]-a[0]),nl=Math.hypot(nx,ny)||1;
+      const o=(RNG()*2-1)*disp; np.push([mx+nx/nl*o,my+ny/nl*o]); }
+    np.push(pts[pts.length-1]); pts=np; disp*=0.55; }
+  const forks=[];
+  for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]),S=Math.ceil(L);
+    for(let s=0;s<=S;s++){ const k=s/S,x=a[0]+(b[0]-a[0])*k,y=a[1]+(b[1]-a[1])*k;
+      add(x,y, col[0]*1.1*inten,col[1]*1.1*inten,col[2]*1.4*inten);   // coloured glow
+      add(x,y, WHITE[0]*inten,WHITE[1]*inten,WHITE[2]*inten);         // white-hot core
+      if(depth>0 && RNG()<0.035){ const a2=RNG()*6.28,l=4+RNG()*8; forks.push([x,y,x+Math.cos(a2)*l,y+Math.sin(a2)*l]); } } }
+  for(const f of forks) arc(f[0],f[1],f[2],f[3],2,col,inten*0.7,depth-1);  // single-level forks
+}
+
+/* ---- particles -------------------------------------------------------- */
+let P=[];                               // {x,y,vx,vy,life,max,kind}
+function spawnSpark(x,y,P_){
+  const a=-Math.PI/2 + (RNG()*2-1)*1.5, sp=0.6+RNG()*1.8*P_;
+  P.push({x,y,vx:Math.cos(a)*sp+(RNG()*2-1)*0.4, vy:Math.sin(a)*sp-0.3, life:0, max:14+RNG()*16, kind:0});
+}
+function spawnGather(cx,cy){
+  const a=RNG()*6.283, r=34+RNG()*26, x=cx+Math.cos(a)*r, y=cy+Math.sin(a)*r;
+  const tx=cx+(RNG()*2-1)*6, ty=cy+(RNG()*2-1)*10, d=Math.hypot(tx-x,ty-y)||1, sp=1.0+RNG()*1.2;
+  P.push({x,y,vx:(tx-x)/d*sp,vy:(ty-y)/d*sp,life:0,max:d/sp,kind:1});
+}
+function stepParticles(dt,pl,t){
+  // emit
+  const chest=[128,92];
+  if(pl<1) for(let i=0;i<3;i++) if(RNG()<0.9) spawnGather(chest[0],chest[1]);   // gather while charging
+  const nSpark=(1+pl*6)|0;
+  for(let i=0;i<nSpark;i++){ const e=EM[(RNG()*EM.length)|0]; spawnSpark(e[0]+(RNG()*6-3),e[1]+(RNG()*6-3),pl); }
+  if(RNG()<0.6) spawnSpark(128+(RNG()*40-20),130,pl*0.6);                       // ground dust lifting
+  // update + draw
+  const next=[];
+  for(const p of P){ p.life++; p.x+=p.vx; p.y+=p.vy;
+    if(p.kind===0){ p.vy+=0.03; }                                              // sparks: slight gravity
+    const lf=1-p.life/p.max; if(lf<=0) continue;
+    let c; if(p.kind===1){ c=GOLD; } else { c = lf>0.66?WHITE : lf>0.33?CYAN : BLUE; }
+    const inten=(p.kind===1?0.7:1.0)*(0.5+lf);
+    add(p.x,p.y, c[0]*inten,c[1]*inten,c[2]*inten);
+    if(lf>0.7){ add(p.x,p.y,0.4,0.4,0.4); }
+    next.push(p); }
+  P = next.length>1400? next.slice(next.length-1400) : next;
+}
+
+/* ---- silhouette ------------------------------------------------------- */
+function disc(cx,cy,r){ for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++) if(x*x+y*y<=r*r){ const xx=cx+x|0,yy=cy+y|0; if(xx>=0&&yy>=0&&xx<W&&yy<H) sil[yy*W+xx]=1; } }
+function cap(x0,y0,x1,y1,r){ const L=Math.hypot(x1-x0,y1-y0),S=Math.ceil(L); for(let s=0;s<=S;s++){const k=s/S; disc(Math.round(x0+(x1-x0)*k),Math.round(y0+(y1-y0)*k),r);} }
+function buildSilhouette(){
+  sil.fill(0);
+  disc(128,66,7);                       // head
+  cap(128,74,128,104,11);               // torso
+  cap(120,104,116,128,7); cap(136,104,140,128,7);   // legs apart
+  cap(114,80,104,95,5); cap(104,95,108,108,5);       // left arm bent, fist low
+  cap(142,80,152,95,5); cap(152,95,148,108,5);       // right arm bent
+  disc(106,108,6); disc(150,108,6);     // clenched fists
+  // collect edge pixels
+  edges=[];
+  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){ const i=y*W+x; if(!sil[i])continue;
+    if(!sil[i-1]||!sil[i+1]||!sil[i-W]||!sil[i+W]) edges.push(i); }
+}
+
+/* ---- power curve ------------------------------------------------------ */
+function powerLevel(t){
+  const ramp=Math.min(1,t/3.2); const e=1-(1-ramp)*(1-ramp);
+  const pulse=0.85+0.15*Math.sin(t*3.0);
+  const surge=Math.exp(-Math.pow(((t%4.0)-0.0)/0.45,2))*0.5;   // periodic burst
+  return e*pulse + e*surge;
+}
+
+/* ---- one frame -------------------------------------------------------- */
+function frame(t,dt){
+  acc.fill(0);
+  const pl=powerLevel(t);
+
+  // base nebula + ground
+  for(let i=0;i<N;i++){ acc[i*3]+=0.02; acc[i*3+1]+=0.02; acc[i*3+2]+=0.05; }
+  for(let x=0;x<W;x++){ const g=0.10*Math.max(0,1-Math.abs(x-128)/130); add(x,129,GOLD[0]*g,GOLD[1]*g,GOLD[2]*g); add(x,130,g*0.3,g*0.2,g*0.4);}
+
+  // swelling aura behind the hero
+  glow(128,92, 26+44*pl, GOLD, 0.30+0.5*pl);
+  glow(128,86, 14+22*pl, ORANGE, 0.30*pl);
+  glow(128,80, 8+10*pl, WHITE, 0.25*pl);
+  // crackling aura ring (electric edge), regenerated
+  const rings=(6+18*pl)|0;
+  for(let i=0;i<rings;i++){ const a=RNG()*6.283, r=(20+40*pl)*(0.8+RNG()*0.3);
+    add(128+Math.cos(a)*r,92+Math.sin(a)*r*0.9, CYAN[0],CYAN[1],CYAN[2]); }
+
+  // arcs erupting off the body (regenerated every frame -> flicker)
+  const nArc=(2+16*pl)|0;
+  for(let i=0;i<nArc;i++){ const e=EM[(RNG()*EM.length)|0];
+    const ang=Math.atan2(e[1]-92,e[0]-128)+(RNG()*2-1)*0.7;
+    const len=(10+46*pl)*(0.5+RNG()*0.8);
+    const tx=e[0]+Math.cos(ang)*len, ty=e[1]+Math.sin(ang)*len - 4;
+    const col = RNG()<0.7?BLUE : PURP;
+    arc(e[0],e[1],tx,ty, 3+5*pl, col, 0.7+0.5*RNG()); }
+  // a few aura-hugging arcs jumping between body points
+  for(let i=0;i<(1+5*pl|0);i++){ const a=EM[(RNG()*EM.length)|0],b=EM[(RNG()*EM.length)|0];
+    arc(a[0],a[1],b[0],b[1],4,CYAN,0.6); }
+
+  stepParticles(dt,pl,t);
+
+  // ---- compose: filmic tonemap ----
+  const img=COMPOSE_OUT;
+  for(let i=0;i<N;i++){ let r=acc[i*3],g=acc[i*3+1],b=acc[i*3+2];
+    r=1-Math.exp(-r*1.25); g=1-Math.exp(-g*1.25); b=1-Math.exp(-b*1.25);
+    img[i*4]=r*255; img[i*4+1]=g*255; img[i*4+2]=b*255; img[i*4+3]=255; }
+
+  // ---- silhouette solid black, with irradiated rim bloom ----
+  for(let i=0;i<N;i++){ if(sil[i]){ img[i*4]=2;img[i*4+1]=2;img[i*4+2]=6; } }
+  for(const i of edges){ if(RNG()<0.5){ const c= RNG()<0.6?GOLD:CYAN, b=120+135*pl;
+      img[i*4]=Math.min(255,img[i*4]+c[0]*b); img[i*4+1]=Math.min(255,img[i*4+1]+c[1]*b); img[i*4+2]=Math.min(255,img[i*4+2]+c[2]*b); } }
+  return img;
+}
+let COMPOSE_OUT=new Uint8ClampedArray(N*4);
+
+/* ---- DOM bootstrap ---------------------------------------------------- */
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('screen'); cvs.width=W; cvs.height=H;
+  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  buildSilhouette();
+  let t0=0, last=0;
+  function tick(ts){ if(!t0){t0=ts;last=ts;} const t=(ts-t0)*0.001, dt=Math.min(0.05,(ts-last)*0.001); last=ts;
+    const img=frame(t,dt); ctx.putImageData(new ImageData(img,W,H),0,0); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>
