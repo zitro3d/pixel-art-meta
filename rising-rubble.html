@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rising Rubble — Floating Broken Rocks | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;
+    background:#171a14;
+    background-image:
+      linear-gradient(45deg,#1d2018 25%,transparent 25%,transparent 75%,#1d2018 75%),
+      linear-gradient(45deg,#1d2018 25%,transparent 25%,transparent 75%,#1d2018 75%);
+    background-size:26px 26px; background-position:0 0,13px 13px;}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:90vh; width:auto; }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+<script>
+/* RISING RUBBLE — broken rock chunks + dust drifting slowly upward off the
+   ground (levitation / telekinesis). Flat pixel-art palette, transparent
+   background so it composites over a scene. Persistent particle system. */
+const W=110, H=132, N=W*H, GROUND=H-4;
+const img=new Uint8ClampedArray(N*4);
+
+const ROCK_HI=[170,140,108], ROCK_MID=[120,96,70], ROCK_DK=[74,56,40], ROCK_OUT=[38,27,19];
+const DUST=[201,178,140], DUST_HI=[230,212,176], DUST_DK=[150,128,96];
+
+function pset(x,y,c,a){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H)return; const i=(y*W+x)*4;
+  const al=a===undefined?255:a; if(al<img[i+3])return; img[i]=c[0];img[i+1]=c[1];img[i+2]=c[2];img[i+3]=al; }
+
+/* build an irregular shaded rock chunk as local [dx,dy,color] pixels */
+function makeRock(size){
+  const pts=[]; const sq=size*size, syq=size*size*0.72;
+  for(let y=-size;y<=size;y++) for(let x=-size;x<=size;x++){
+    const e=(x*x)/sq+(y*y)/syq; if(e>1) continue;
+    if(e>0.62 && Math.random()<0.45) continue;          // jagged broken edge
+    const l=(-x*0.7 - y);                                // light from top-left
+    let c;
+    if(e>0.74) c=ROCK_OUT;
+    else if(l>size*0.45) c=ROCK_HI;
+    else if(l>-size*0.15) c=ROCK_MID;
+    else c=ROCK_DK;
+    pts.push([x,y,c]);
+  }
+  // a couple of facet cracks
+  if(size>=4){ const cx=(Math.random()*size-size/2)|0; for(let y=-size+1;y<size-1;y++) if(Math.random()<0.5) pts.push([cx,y,ROCK_DK]); }
+  return pts;
+}
+
+let rocks=[], dust=[], rubble=[];
+function spawnRock(atBottom){
+  const size=2+(Math.random()*4|0);
+  rocks.push({ x:6+Math.random()*(W-12), y: atBottom? GROUND-size+Math.random()*8 : Math.random()*GROUND,
+    vy:5+Math.random()*7, phase:Math.random()*6.28, sway:1+Math.random()*3.5, swf:0.6+Math.random()*0.8,
+    bob:Math.random()*6.28, size, pts:makeRock(size) });
+}
+function spawnDust(x,y){
+  dust.push({ x, y, vy:8+Math.random()*12, phase:Math.random()*6.28, sway:1+Math.random()*3, swf:0.8+Math.random()*1.2,
+    life:0, max:H/(8+Math.random()*8)+Math.random()*0.5, big:Math.random()<0.25 });
+}
+
+function init(){
+  for(let i=0;i<13;i++) spawnRock(false);
+  for(let i=0;i<150;i++) spawnDust(6+Math.random()*(W-12), Math.random()*H);
+  // a few static broken bits sitting on the ground
+  for(let i=0;i<10;i++) rubble.push({ x:4+Math.random()*(W-8), y:GROUND+1+Math.random()*3, pts:makeRock(1+(Math.random()*2|0)) });
+}
+
+function frame(t,dt){
+  img.fill(0);
+
+  // faint ground dust haze + static rubble
+  for(const rk of rubble) for(const [dx,dy,c] of rk.pts) pset(rk.x+dx, rk.y+dy, c, 220);
+  for(let x=0;x<W;x++){ if(Math.random()<0.4) pset(x, GROUND+(Math.random()*3|0), DUST_DK, 60); }
+
+  // ---- dust particles rising ----
+  for(const p of dust){
+    p.life+=dt; p.y-=p.vy*dt; p.x+=Math.sin(t*p.swf+p.phase)*p.sway*dt;
+    const lf=1-p.life/p.max;
+    if(lf<=0 || p.y< -2){ p.y=GROUND+Math.random()*4; p.x=6+Math.random()*(W-12); p.life=0; p.max=H/(8+Math.random()*8); continue; }
+    const a=Math.min(1, lf*1.4)*255;
+    const c = lf>0.7?DUST_HI : lf>0.35?DUST:DUST_DK;
+    pset(p.x,p.y,c,a);
+    if(p.big){ pset(p.x+1,p.y,c,a*0.8); }
+  }
+
+  // ---- rock chunks rising (slow drift + gentle bob) ----
+  for(const rk of rocks){
+    rk.y-=rk.vy*dt; rk.x+=Math.sin(t*rk.swf+rk.phase)*rk.sway*dt;
+    const by=Math.sin(t*0.9+rk.bob)*0.6;                  // gentle vertical bob
+    if(rk.y < -rk.size-2){ rk.y=GROUND+rk.size+Math.random()*10; rk.x=6+Math.random()*(W-12); rk.pts=makeRock(rk.size); rk.vy=5+Math.random()*7; }
+    const ra=Math.max(0,Math.min(1, rk.y/22))*255;        // dissolve away as it rises high
+    for(const [dx,dy,c] of rk.pts) pset(rk.x+dx, rk.y+dy+by, c, ra);
+    // occasional dust shedding off a rock
+    if(Math.random()<0.04) spawnDust(rk.x+(Math.random()*rk.size*2-rk.size), rk.y+rk.size);
+  }
+
+  return img;
+}
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('screen'); cvs.width=W; cvs.height=H;
+  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  init();
+  let t0=0,last=0;
+  function tick(ts){ if(!t0){t0=ts;last=ts;} const t=(ts-t0)*0.001, dt=Math.min(0.05,(ts-last)*0.001); last=ts;
+    ctx.clearRect(0,0,W,H); ctx.putImageData(new ImageData(frame(t,dt),W,H),0,0); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>
