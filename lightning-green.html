@@ -40,11 +40,14 @@ const OPTS=[
   {id:'D', name:'Wild',   disp:0.30, detail:7, branches:11, blen:0.36, thick:1},
 ];
 const SEQ=[
-  ['ball',0.45,2],['ball',0.8,2],['ball',1.0,2],           // charge up
-  ['burst',0.18,1],['burst',0.5,1],['burst',0.85,1],        // BOOM
-  ['rev',0.4,1],['rev',0.75,1],['rev',1.0,1],               // spine erupts
-  ['flash',0,1],['glow',1.0,3],['glow',1.0,3],['rev',1.0,2],// alive: tendrils crackle
-  ['fade',0.6,1],['fade',0.3,1],['fade',0.12,1],['empty',0,8],
+  ['ball',0.5,2],['ball',1.0,2],                 // charge
+  ['burst',0.3,1],['burst',0.85,1],               // BOOM
+  ['strike',0,1],['glow',1.0,1],['empty',0,1],    // STROKE 1 slams down, glows, flickers off
+  ['strike',0,1],['glow',1.0,1],['empty',0,1],    // STROKE 2 — a new line comes down (moved)
+  ['strike',0,1],['glow',1.0,2],                  // STROKE 3 + hold
+  ['tfade',0.55,1],['tfade',0.28,1],              // tendrils fade off (channel stays)
+  ['fade',0.5,1],['fade',0.2,1],                  // channel fades out
+  ['empty',0,9],
 ];
 
 /* ---- geometry ---------------------------------------------------------- */
@@ -96,14 +99,13 @@ function edges(pts, rad){ const s=new Set(pts.map(p=>p[0]+','+p[1])), out=new Se
 /* ---- one strike (canvas-free core so it also renders headless) --------- */
 function makeStrike(opt){
   const buf=new Uint8ClampedArray(GW*GH*4);
-  let spinePoly, spine, spineSorted, spray, tend=[], idx=0, stepStart=0, lastGen=-1e9;
-  function newStrike(){
-    const ex=GW/2+(Math.random()*22-11), ey=GH-10, disp0=GW*opt.disp;
+  let baseEx, spinePoly, spine, spray, tend=[], idx=0, stepStart=0, lastGen=-1e9;
+  function newCycle(){ baseEx=GW/2+(Math.random()*22-11); }   // where this strike lands
+  function newStroke(){                                        // a fresh main line comes down (return stroke, moved)
+    const ex=baseEx+(Math.random()*8-4), ey=GH-10, disp0=GW*opt.disp;
     spinePoly=displace([OX,OY],[ex,ey],disp0,opt.detail);
     let s=raster(spinePoly); if(opt.thick>=2) s=s.concat(s.map(p=>[p[0]+1,p[1]]));
     spine=s.filter(inb);
-    const seen=new Set(); spineSorted=[];
-    spine.slice().sort((a,b)=>a[1]-b[1]||a[0]-b[0]).forEach(p=>{const k=p[0]+','+p[1]; if(!seen.has(k)){seen.add(k);spineSorted.push(p);}});
     spray=[]; const ns=8+(Math.random()*6|0);
     for(let i=0;i<ns;i++){ const a=Math.random()*Math.PI, r=1+Math.random()*6; const p=[Math.round(ex+Math.cos(a)*r*1.3),Math.round(ey+Math.abs(Math.sin(a))*r*0.7)]; if(inb(p)) spray.push(p); }
     tend=tendrils(spinePoly,opt);
@@ -127,20 +129,20 @@ function makeStrike(opt){
         line(Math.round(OX+Math.cos(a)*r0),Math.round(OY+Math.sin(a)*r0),Math.round(OX+Math.cos(a)*r1),Math.round(OY+Math.sin(a)*r1),seg);
         seg.forEach((p,i)=> put([p], i===seg.length-1?WHITE:BRIGHT)); }
       core(Math.max(1,(5*(1-arg))|0));
-    } else if(k==='rev'){
-      if(arg>=1){ put(full,BOLT); } else { put(spineSorted.slice(0,(spineSorted.length*arg)|0),BOLT); }
-      core(3);
+    } else if(k==='strike'){                     // bright slam of the whole (newly-struck) bolt
+      put(edges(spine.concat(tend),1),BOLT); put(full,WHITE); core(4);
     } else if(k==='glow'){ put(edges(spine.concat(tend),1),BOLT); put(full,BRIGHT); core(3); }
-    else if(k==='flash'){ put(edges(spine.concat(tend),2),BOLT); put(edges(spine.concat(tend),1),BRIGHT); put(full,WHITE); core(4); }
+    else if(k==='tfade'){ put(spine,BOLT); put(tend.filter(()=>Math.random()<arg),BOLT); core(2); }  // tendrils fade, channel holds
     else if(k==='fade'){ put(full.filter(()=>Math.random()<arg),BOLT); }
   }
-  newStrike(); compose(SEQ[0]);
+  newCycle(); newStroke(); compose(SEQ[0]);
   return { buf, advance(now){
     if(!stepStart) stepStart=now;
-    const step=SEQ[idx], live = step[0]==='glow' || (step[0]==='rev'&&step[1]>=1);
-    if(live && now-lastGen>=REFRESH){ tend=tendrils(spinePoly,opt); lastGen=now; }
+    const step=SEQ[idx];
+    if(step[0]==='glow' && now-lastGen>=REFRESH){ tend=tendrils(spinePoly,opt); lastGen=now; }  // tendrils crackle
     compose(step);
-    if(now-stepStart>=step[2]*UNIT){ idx++; if(idx>=SEQ.length){ idx=0; newStrike(); } stepStart=now; }
+    if(now-stepStart>=step[2]*UNIT){ idx++; if(idx>=SEQ.length){ idx=0; newCycle(); }
+      stepStart=now; if(SEQ[idx][0]==='strike') newStroke(); }   // each strike = a new line comes down
   } };
 }
 
