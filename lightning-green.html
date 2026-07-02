@@ -31,14 +31,14 @@
    the blue set, recoloured to electrifying GREEN with a little more branching
    variance. charge -> BOOM -> midpoint-displacement bolt erupts -> flash ->
    glow -> fragment fade. Transparent canvas; unique bolt every strike. */
-const GW=56, GH=116, OX=28, OY=20, UNIT=85;
+const GW=56, GH=150, OX=28, OY=18, UNIT=85;
 const BOLT=[0x1F,0xD3,0x4E], BRIGHT=[0x6B,0xFF,0x5C], WHITE=[0xDC,0xFF,0xD2];
 
 const OPTS=[
-  {id:'A', name:'Bolt',   disp:0.20, detail:6, branches:1, blen:0.30, thick:1},
-  {id:'B', name:'Forked', disp:0.19, detail:6, branches:5, blen:0.40, thick:1},
-  {id:'C', name:'Heavy',  disp:0.16, detail:6, branches:2, blen:0.32, thick:2},
-  {id:'D', name:'Wild',   disp:0.30, detail:7, branches:6, blen:0.32, thick:1},
+  {id:'A', name:'Bolt',   disp:0.20, detail:6, branches:3, blen:0.34, thick:1},
+  {id:'B', name:'Forked', disp:0.19, detail:6, branches:7, blen:0.44, thick:1},
+  {id:'C', name:'Heavy',  disp:0.16, detail:6, branches:4, blen:0.36, thick:2},
+  {id:'D', name:'Wild',   disp:0.30, detail:7, branches:9, blen:0.36, thick:1},
 ];
 const SEQ=[
   ['ball',0.45,2],['ball',0.8,2],['ball',1.0,2],          // charge up
@@ -70,13 +70,20 @@ function genBolt(opt){
   const ex=GW/2+(Math.random()*20-10), ey=GH-10, disp0=GW*opt.disp;
   const mainPoly=displace([OX,OY],[ex,ey],disp0,opt.detail);
   let pts=raster(mainPoly);
-  for(let bI=0;bI<opt.branches;bI++){
-    const t=0.25+Math.random()*0.6, vi=(t*(mainPoly.length-1))|0;
-    const a=mainPoly[vi], b=mainPoly[Math.min(mainPoly.length-1,vi+1)];
-    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]) + (Math.random()<0.5?-1:1)*(0.5+Math.random()*0.6);
-    const ln=opt.blen*GH*(0.6+Math.random()*0.5);
-    pts=pts.concat(raster(displace(a,[a[0]+Math.cos(ang)*ln,a[1]+Math.sin(ang)*ln],disp0*0.6,Math.max(3,opt.detail-1))));
+  // recursive tendrils: branches fork off the main bolt, and can spawn smaller
+  // sub-tendrils off themselves -> lots of offshoots crawling off the bolt
+  function tendril(fromPoly, d0, detail, blen, depth){
+    const t=0.22+Math.random()*0.66, vi=(t*(fromPoly.length-1))|0;
+    const a=fromPoly[vi], b=fromPoly[Math.min(fromPoly.length-1,vi+1)];
+    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]) + (Math.random()<0.5?-1:1)*(0.5+Math.random()*0.7);
+    const ln=blen*GH*(0.5+Math.random()*0.6);
+    const poly=displace(a,[a[0]+Math.cos(ang)*ln,a[1]+Math.sin(ang)*ln], d0, Math.max(3,detail-1));
+    let out=raster(poly);
+    if(depth>0){ const sub=1+(Math.random()*2|0);
+      for(let i=0;i<sub;i++) if(Math.random()<0.7) out=out.concat(tendril(poly, d0*0.7, detail-1, blen*0.6, depth-1)); }
+    return out;
   }
+  for(let bI=0;bI<opt.branches;bI++) pts=pts.concat(tendril(mainPoly, disp0*0.6, opt.detail, opt.blen, 1));
   if(opt.thick>=2){ const ex2=[]; for(const p of pts) ex2.push([p[0]+1,p[1]]); pts=pts.concat(ex2); }
   const spray=[], ns=7+(Math.random()*5|0);
   for(let i=0;i<ns;i++){ const a=Math.random()*Math.PI, r=1+Math.random()*5;
