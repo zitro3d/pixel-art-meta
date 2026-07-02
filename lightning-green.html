@@ -30,14 +30,14 @@
 /* Procedural green pixel lightning. A COHERENT main spine erupts from the
    blast; its TENDRILS are regenerated continuously (animated crackle) while
    the bolt is alive. Double-length bolts. Transparent; unique every strike. */
-const GW=66, GH=270, OX=33, OY=18, UNIT=85, REFRESH=70;
+const GW=56, GH=150, OX=28, OY=18, UNIT=85, REFRESH=70;   // original proportions (not stretched)
 const BOLT=[0x1F,0xD3,0x4E], BRIGHT=[0x6B,0xFF,0x5C], WHITE=[0xDC,0xFF,0xD2];
 
 const OPTS=[
-  {id:'A', name:'Bolt',   disp:0.18, detail:7, branches:3, blen:0.22, thick:1},
-  {id:'B', name:'Forked', disp:0.17, detail:7, branches:7, blen:0.26, thick:1},
-  {id:'C', name:'Heavy',  disp:0.15, detail:7, branches:4, blen:0.22, thick:2},
-  {id:'D', name:'Wild',   disp:0.26, detail:8, branches:9, blen:0.24, thick:1},
+  {id:'A', name:'Bolt',   disp:0.20, detail:6, branches:4, blen:0.34, thick:1},
+  {id:'B', name:'Forked', disp:0.19, detail:6, branches:8, blen:0.44, thick:1},
+  {id:'C', name:'Heavy',  disp:0.16, detail:6, branches:5, blen:0.36, thick:2},
+  {id:'D', name:'Wild',   disp:0.30, detail:7, branches:11, blen:0.36, thick:1},
 ];
 const SEQ=[
   ['ball',0.45,2],['ball',0.8,2],['ball',1.0,2],           // charge up
@@ -70,10 +70,15 @@ const inb=p=>p[0]>=0&&p[0]<GW&&p[1]>=0&&p[1]<GH;
 function tendrils(spinePoly, opt){
   let out=[];
   function grow(fromPoly, d0, detail, blen, depth){
-    const t=0.18+Math.random()*0.72, vi=(t*(fromPoly.length-1))|0;
+    // ~half the tendrils fork from the LOWER spine and reach longer -> the bolt
+    // extends further via new tendrils instead of a stretched channel
+    const lower=Math.random()<0.5;
+    const t = lower ? 0.60+Math.random()*0.36 : 0.18+Math.random()*0.5;
+    const vi=(t*(fromPoly.length-1))|0;
     const a=fromPoly[vi], b=fromPoly[Math.min(fromPoly.length-1,vi+1)];
-    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]) + (Math.random()<0.5?-1:1)*(0.5+Math.random()*0.7);
-    const ln=blen*GH*(0.5+Math.random()*0.6);
+    const spread = lower ? 0.35 : 0.7;                    // lower tendrils flare out less (extend down)
+    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]) + (Math.random()<0.5?-1:1)*(0.35+Math.random()*spread);
+    const ln=blen*GH*(0.5+Math.random()*0.6)*(lower?1.5:1.0);
     const poly=displace(a,[a[0]+Math.cos(ang)*ln,a[1]+Math.sin(ang)*ln], d0, Math.max(3,detail-1));
     out=out.concat(raster(poly));
     if(depth>0){ const sub=1+(Math.random()*2|0); for(let i=0;i<sub;i++) if(Math.random()<0.7) grow(poly,d0*0.7,detail-1,blen*0.6,depth-1); }
