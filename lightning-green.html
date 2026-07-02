@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Green Lightning — Energy-Blast + 4 Procedural Options | pixel-art-meta</title>
+<title>Green Lightning — Long Bolts + Animated Tendrils | pixel-art-meta</title>
 <style>
   html,body{margin:0;min-height:100%;color:#a6d8b2;font:13px ui-monospace,Menlo,Consolas,monospace;
     background:#0f1f16;
@@ -11,40 +11,39 @@
       linear-gradient(45deg,#0b1810 25%,transparent 25%,transparent 75%,#0b1810 75%),
       linear-gradient(45deg,#0b1810 25%,transparent 25%,transparent 75%,#0b1810 75%);
     background-size:24px 24px; background-position:0 0,12px 12px;}
-  h1{font-size:15px;color:#d6ffdc;text-align:center;margin:18px 0 2px}
-  p.sub{text-align:center;margin:0 0 14px;color:#6f9a78}
-  .row{display:flex;gap:18px;justify-content:center;align-items:flex-end;flex-wrap:wrap;padding:8px 16px 28px}
-  .cell{display:flex;flex-direction:column;align-items:center;gap:8px}
-  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:66vh; width:auto;
+  h1{font-size:15px;color:#d6ffdc;text-align:center;margin:16px 0 2px}
+  p.sub{text-align:center;margin:0 0 10px;color:#6f9a78}
+  .row{display:flex;gap:16px;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:6px 16px 24px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:82vh; width:auto;
     filter:drop-shadow(0 0 1px #0008); }
   .lab{color:#9fffb0;letter-spacing:1px}
   .lab b{color:#fff}
 </style>
 </head>
 <body>
-  <h1>GREEN LIGHTNING — ENERGY-BLAST INTRO + 4 PROCEDURAL OPTIONS</h1>
-  <p class="sub">charge &rarr; boom &rarr; the bolt erupts from the blast · unique shape every strike · transparent · #1FD34E / #6BFF5C</p>
+  <h1>GREEN LIGHTNING — LONG BOLTS + ANIMATED TENDRILS</h1>
+  <p class="sub">charge &rarr; boom &rarr; long bolt erupts, its tendrils crackle &amp; re-fire every frame &rarr; glow &rarr; fade</p>
   <div class="row" id="row"></div>
 
 <script>
-/* Procedural pixel lightning (energy-ball blast intro) — the exact recipe as
-   the blue set, recoloured to electrifying GREEN with a little more branching
-   variance. charge -> BOOM -> midpoint-displacement bolt erupts -> flash ->
-   glow -> fragment fade. Transparent canvas; unique bolt every strike. */
-const GW=56, GH=150, OX=28, OY=18, UNIT=85;
+/* Procedural green pixel lightning. A COHERENT main spine erupts from the
+   blast; its TENDRILS are regenerated continuously (animated crackle) while
+   the bolt is alive. Double-length bolts. Transparent; unique every strike. */
+const GW=66, GH=270, OX=33, OY=18, UNIT=85, REFRESH=70;
 const BOLT=[0x1F,0xD3,0x4E], BRIGHT=[0x6B,0xFF,0x5C], WHITE=[0xDC,0xFF,0xD2];
 
 const OPTS=[
-  {id:'A', name:'Bolt',   disp:0.20, detail:6, branches:3, blen:0.34, thick:1},
-  {id:'B', name:'Forked', disp:0.19, detail:6, branches:7, blen:0.44, thick:1},
-  {id:'C', name:'Heavy',  disp:0.16, detail:6, branches:4, blen:0.36, thick:2},
-  {id:'D', name:'Wild',   disp:0.30, detail:7, branches:9, blen:0.36, thick:1},
+  {id:'A', name:'Bolt',   disp:0.18, detail:7, branches:3, blen:0.22, thick:1},
+  {id:'B', name:'Forked', disp:0.17, detail:7, branches:7, blen:0.26, thick:1},
+  {id:'C', name:'Heavy',  disp:0.15, detail:7, branches:4, blen:0.22, thick:2},
+  {id:'D', name:'Wild',   disp:0.26, detail:8, branches:9, blen:0.24, thick:1},
 ];
 const SEQ=[
-  ['ball',0.45,2],['ball',0.8,2],['ball',1.0,2],          // charge up
-  ['burst',0.18,1],['burst',0.5,1],['burst',0.85,1],       // BOOM
-  ['rev',0.4,1],['rev',0.75,1],['rev',1.0,1],              // bolt erupts
-  ['flash',0,1],['glow',1.0,2],['glow',1.0,2],['rev',1.0,1],
+  ['ball',0.45,2],['ball',0.8,2],['ball',1.0,2],           // charge up
+  ['burst',0.18,1],['burst',0.5,1],['burst',0.85,1],        // BOOM
+  ['rev',0.4,1],['rev',0.75,1],['rev',1.0,1],               // spine erupts
+  ['flash',0,1],['glow',1.0,3],['glow',1.0,3],['rev',1.0,2],// alive: tendrils crackle
   ['fade',0.6,1],['fade',0.3,1],['fade',0.12,1],['empty',0,8],
 ];
 
@@ -65,88 +64,93 @@ function line(x0,y0,x1,y1,out){
 function raster(poly){ const out=[]; for(let i=0;i<poly.length-1;i++){ const a=poly[i],b=poly[i+1],seg=[];
   line(Math.round(a[0]),Math.round(a[1]),Math.round(b[0]),Math.round(b[1]),seg);
   for(const p of seg){ if(!out.length||out[out.length-1][0]!==p[0]||out[out.length-1][1]!==p[1]) out.push(p); } } return out; }
+const inb=p=>p[0]>=0&&p[0]<GW&&p[1]>=0&&p[1]<GH;
 
-function genBolt(opt){
-  const ex=GW/2+(Math.random()*20-10), ey=GH-10, disp0=GW*opt.disp;
-  const mainPoly=displace([OX,OY],[ex,ey],disp0,opt.detail);
-  let pts=raster(mainPoly);
-  // recursive tendrils: branches fork off the main bolt, and can spawn smaller
-  // sub-tendrils off themselves -> lots of offshoots crawling off the bolt
-  function tendril(fromPoly, d0, detail, blen, depth){
-    const t=0.22+Math.random()*0.66, vi=(t*(fromPoly.length-1))|0;
+// tendrils that fork (recursively) off a given polyline — regenerated each call
+function tendrils(spinePoly, opt){
+  let out=[];
+  function grow(fromPoly, d0, detail, blen, depth){
+    const t=0.18+Math.random()*0.72, vi=(t*(fromPoly.length-1))|0;
     const a=fromPoly[vi], b=fromPoly[Math.min(fromPoly.length-1,vi+1)];
     const ang=Math.atan2(b[1]-a[1],b[0]-a[0]) + (Math.random()<0.5?-1:1)*(0.5+Math.random()*0.7);
     const ln=blen*GH*(0.5+Math.random()*0.6);
     const poly=displace(a,[a[0]+Math.cos(ang)*ln,a[1]+Math.sin(ang)*ln], d0, Math.max(3,detail-1));
-    let out=raster(poly);
-    if(depth>0){ const sub=1+(Math.random()*2|0);
-      for(let i=0;i<sub;i++) if(Math.random()<0.7) out=out.concat(tendril(poly, d0*0.7, detail-1, blen*0.6, depth-1)); }
-    return out;
+    out=out.concat(raster(poly));
+    if(depth>0){ const sub=1+(Math.random()*2|0); for(let i=0;i<sub;i++) if(Math.random()<0.7) grow(poly,d0*0.7,detail-1,blen*0.6,depth-1); }
   }
-  for(let bI=0;bI<opt.branches;bI++) pts=pts.concat(tendril(mainPoly, disp0*0.6, opt.detail, opt.blen, 1));
-  if(opt.thick>=2){ const ex2=[]; for(const p of pts) ex2.push([p[0]+1,p[1]]); pts=pts.concat(ex2); }
-  const spray=[], ns=7+(Math.random()*5|0);
-  for(let i=0;i<ns;i++){ const a=Math.random()*Math.PI, r=1+Math.random()*5;
-    spray.push([Math.round(ex+Math.cos(a)*r*1.3), Math.round(ey+Math.abs(Math.sin(a))*r*0.7)]); }
-  const seen=new Set(), main=[];
-  pts.filter(p=>p[0]>=0&&p[0]<GW&&p[1]>=0&&p[1]<GH).sort((a,b)=> a[1]-b[1]||a[0]-b[0])
-     .forEach(p=>{ const k=p[0]+','+p[1]; if(!seen.has(k)){ seen.add(k); main.push(p); } });
-  return { main, spray: spray.filter(p=>p[0]>=0&&p[0]<GW&&p[1]>=0&&p[1]<GH) };
+  const disp0=GW*opt.disp;
+  for(let bI=0;bI<opt.branches;bI++) grow(spinePoly, disp0*0.6, opt.detail, opt.blen, 1);
+  if(opt.thick>=2) out=out.concat(out.map(p=>[p[0]+1,p[1]]));
+  return out.filter(inb);
 }
 function edges(pts, rad){ const s=new Set(pts.map(p=>p[0]+','+p[1])), out=new Set(), res=[];
   for(const [x,y] of pts) for(let dx=-rad;dx<=rad;dx++) for(let dy=-rad;dy<=rad;dy++){
     if((dx||dy)===0||Math.abs(dx)+Math.abs(dy)>rad) continue; const k=(x+dx)+','+(y+dy);
     if(!s.has(k)&&!out.has(k)){ out.add(k); res.push([x+dx,y+dy]); } } return res; }
 
-/* ---- per-canvas strike ------------------------------------------------- */
+/* ---- one strike (canvas-free core so it also renders headless) --------- */
 function makeStrike(opt){
-  const cvs=document.createElement('canvas'); cvs.width=GW; cvs.height=GH;
-  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
-  const buf=ctx.createImageData(GW,GH);
-  let bolt=genBolt(opt), idx=0, stepStart=0, composed=false;
-  function put(pts,c){ const d=buf.data; for(const [x,y] of pts){ if(x<0||y<0||x>=GW||y>=GH)continue;
-    const i=(y*GW+x)*4; d[i]=c[0];d[i+1]=c[1];d[i+2]=c[2];d[i+3]=255; } }
-  function core(r){ const p=[]; for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){ const d=Math.hypot(x,y);
-    if(d<=r) put([[OX+x,OY+y]], d<r*0.5?WHITE:BRIGHT); } }
+  const buf=new Uint8ClampedArray(GW*GH*4);
+  let spinePoly, spine, spineSorted, spray, tend=[], idx=0, stepStart=0, lastGen=-1e9;
+  function newStrike(){
+    const ex=GW/2+(Math.random()*22-11), ey=GH-10, disp0=GW*opt.disp;
+    spinePoly=displace([OX,OY],[ex,ey],disp0,opt.detail);
+    let s=raster(spinePoly); if(opt.thick>=2) s=s.concat(s.map(p=>[p[0]+1,p[1]]));
+    spine=s.filter(inb);
+    const seen=new Set(); spineSorted=[];
+    spine.slice().sort((a,b)=>a[1]-b[1]||a[0]-b[0]).forEach(p=>{const k=p[0]+','+p[1]; if(!seen.has(k)){seen.add(k);spineSorted.push(p);}});
+    spray=[]; const ns=8+(Math.random()*6|0);
+    for(let i=0;i<ns;i++){ const a=Math.random()*Math.PI, r=1+Math.random()*6; const p=[Math.round(ex+Math.cos(a)*r*1.3),Math.round(ey+Math.abs(Math.sin(a))*r*0.7)]; if(inb(p)) spray.push(p); }
+    tend=tendrils(spinePoly,opt);
+  }
+  function put(pts,c){ for(const [x,y] of pts){ if(x<0||y<0||x>=GW||y>=GH)continue; const i=(y*GW+x)*4; buf[i]=c[0];buf[i+1]=c[1];buf[i+2]=c[2];buf[i+3]=255; } }
+  function core(r){ for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){ const d=Math.hypot(x,y); if(d<=r) put([[OX+x,OY+y]], d<r*0.5?WHITE:BRIGHT); } }
   function compose(step){
-    buf.data.fill(0);
-    const [k,arg]=step, full=bolt.main.concat(bolt.spray);
+    buf.fill(0);
+    const [k,arg]=step, full=spine.concat(tend).concat(spray);
     if(k==='empty') return;
-    if(k==='ball'){
-      const r=3+arg*7;
+    if(k==='ball'){ const r=3+arg*7;
       for(let y=-r-2;y<=r+2;y++) for(let x=-r-2;x<=r+2;x++){ const d=Math.hypot(x,y);
         if(d>r){ if(d<r+2 && Math.random()<0.3*(1-(d-r)/2)) put([[OX+x,OY+y]],BRIGHT); continue; }
         if(d>r*0.8 && Math.random()<(d-r*0.8)/(r*0.2+0.01)*0.6) continue;
         put([[OX+x,OY+y]], d<r*0.38?WHITE : d<r*0.72?BRIGHT : BOLT); }
       put([[OX,OY]],WHITE);
-    } else if(k==='burst'){
-      const R=5+arg*16, th=Math.max(1,(3*(1-arg))|0)+1;
+    } else if(k==='burst'){ const R=5+arg*16, th=Math.max(1,(3*(1-arg))|0)+1;
       for(let deg=0;deg<360;deg+=3){ const a=deg*Math.PI/180;
         for(let t=0;t<th;t++){ const rr=R-t; put([[Math.round(OX+Math.cos(a)*rr),Math.round(OY+Math.sin(a)*rr)]], t===0?WHITE:BRIGHT); } }
-      for(let kk=0;kk<11;kk++){ const a=kk*(2*Math.PI/11)+(Math.random()*0.5-0.25);
-        const r0=R*0.55, r1=R+2+Math.random()*4, seg=[];
+      for(let kk=0;kk<11;kk++){ const a=kk*(2*Math.PI/11)+(Math.random()*0.5-0.25), r0=R*0.55, r1=R+2+Math.random()*4, seg=[];
         line(Math.round(OX+Math.cos(a)*r0),Math.round(OY+Math.sin(a)*r0),Math.round(OX+Math.cos(a)*r1),Math.round(OY+Math.sin(a)*r1),seg);
         seg.forEach((p,i)=> put([p], i===seg.length-1?WHITE:BRIGHT)); }
       core(Math.max(1,(5*(1-arg))|0));
-    } else if(k==='rev'){ put(arg>=1?full:bolt.main.slice(0,(bolt.main.length*arg)|0), BOLT); core(3); }
-    else if(k==='glow'){ put(edges(bolt.main,1),BOLT); put(full,BRIGHT); core(3); }
-    else if(k==='flash'){ put(edges(bolt.main,2),BOLT); put(edges(bolt.main,1),BRIGHT); put(full,WHITE); core(4); }
+    } else if(k==='rev'){
+      if(arg>=1){ put(full,BOLT); } else { put(spineSorted.slice(0,(spineSorted.length*arg)|0),BOLT); }
+      core(3);
+    } else if(k==='glow'){ put(edges(spine.concat(tend),1),BOLT); put(full,BRIGHT); core(3); }
+    else if(k==='flash'){ put(edges(spine.concat(tend),2),BOLT); put(edges(spine.concat(tend),1),BRIGHT); put(full,WHITE); core(4); }
     else if(k==='fade'){ put(full.filter(()=>Math.random()<arg),BOLT); }
   }
-  return { cvs, tick(ts){ if(!stepStart) stepStart=ts; const step=SEQ[idx];
-    if(!composed){ compose(step); ctx.putImageData(buf,0,0); composed=true; }
-    if(ts-stepStart>=step[2]*UNIT){ idx++; if(idx>=SEQ.length){ idx=0; bolt=genBolt(opt); } stepStart=ts; composed=false; } } };
+  newStrike(); compose(SEQ[0]);
+  return { buf, advance(now){
+    if(!stepStart) stepStart=now;
+    const step=SEQ[idx], live = step[0]==='glow' || (step[0]==='rev'&&step[1]>=1);
+    if(live && now-lastGen>=REFRESH){ tend=tendrils(spinePoly,opt); lastGen=now; }
+    compose(step);
+    if(now-stepStart>=step[2]*UNIT){ idx++; if(idx>=SEQ.length){ idx=0; newStrike(); } stepStart=now; }
+  } };
 }
 
-const strikes=OPTS.map(o=>{
-  const cell=document.createElement('div'); cell.className='cell';
-  const s=makeStrike(o); cell.appendChild(s.cvs);
-  const lab=document.createElement('div'); lab.className='lab'; lab.innerHTML=o.id+' · <b>'+o.name+'</b>';
-  cell.appendChild(lab); document.getElementById('row').appendChild(cell);
-  return s;
-});
-function frame(ts){ for(const s of strikes) s.tick(ts); requestAnimationFrame(frame); }
-requestAnimationFrame(frame);
+if(typeof document!=='undefined'){
+  const strikes=OPTS.map(o=>{
+    const cell=document.createElement('div'); cell.className='cell';
+    const cvs=document.createElement('canvas'); cvs.width=GW; cvs.height=GH; cell.appendChild(cvs);
+    const lab=document.createElement('div'); lab.className='lab'; lab.innerHTML=o.id+' · <b>'+o.name+'</b>'; cell.appendChild(lab);
+    document.getElementById('row').appendChild(cell);
+    const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+    return {s:makeStrike(o), ctx};
+  });
+  function frame(ts){ for(const o of strikes){ o.s.advance(ts); o.ctx.putImageData(new ImageData(o.s.buf,GW,GH),0,0); } requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+}
 </script>
 </body>
 </html>
