@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Green Lightning — Energy-Blast + 4 Procedural Options | pixel-art-meta</title>
+<style>
+  html,body{margin:0;min-height:100%;color:#a6d8b2;font:13px ui-monospace,Menlo,Consolas,monospace;
+    background:#0f1f16;
+    background-image:
+      linear-gradient(45deg,#0b1810 25%,transparent 25%,transparent 75%,#0b1810 75%),
+      linear-gradient(45deg,#0b1810 25%,transparent 25%,transparent 75%,#0b1810 75%);
+    background-size:24px 24px; background-position:0 0,12px 12px;}
+  h1{font-size:15px;color:#d6ffdc;text-align:center;margin:18px 0 2px}
+  p.sub{text-align:center;margin:0 0 14px;color:#6f9a78}
+  .row{display:flex;gap:18px;justify-content:center;align-items:flex-end;flex-wrap:wrap;padding:8px 16px 28px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:8px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:66vh; width:auto;
+    filter:drop-shadow(0 0 1px #0008); }
+  .lab{color:#9fffb0;letter-spacing:1px}
+  .lab b{color:#fff}
+</style>
+</head>
+<body>
+  <h1>GREEN LIGHTNING — ENERGY-BLAST INTRO + 4 PROCEDURAL OPTIONS</h1>
+  <p class="sub">charge &rarr; boom &rarr; the bolt erupts from the blast · unique shape every strike · transparent · #1FD34E / #6BFF5C</p>
+  <div class="row" id="row"></div>
+
+<script>
+/* Procedural pixel lightning (energy-ball blast intro) — the exact recipe as
+   the blue set, recoloured to electrifying GREEN with a little more branching
+   variance. charge -> BOOM -> midpoint-displacement bolt erupts -> flash ->
+   glow -> fragment fade. Transparent canvas; unique bolt every strike. */
+const GW=56, GH=116, OX=28, OY=20, UNIT=85;
+const BOLT=[0x1F,0xD3,0x4E], BRIGHT=[0x6B,0xFF,0x5C], WHITE=[0xDC,0xFF,0xD2];
+
+const OPTS=[
+  {id:'A', name:'Bolt',   disp:0.20, detail:6, branches:1, blen:0.30, thick:1},
+  {id:'B', name:'Forked', disp:0.19, detail:6, branches:5, blen:0.40, thick:1},
+  {id:'C', name:'Heavy',  disp:0.16, detail:6, branches:2, blen:0.32, thick:2},
+  {id:'D', name:'Wild',   disp:0.30, detail:7, branches:6, blen:0.32, thick:1},
+];
+const SEQ=[
+  ['ball',0.45,2],['ball',0.8,2],['ball',1.0,2],          // charge up
+  ['burst',0.18,1],['burst',0.5,1],['burst',0.85,1],       // BOOM
+  ['rev',0.4,1],['rev',0.75,1],['rev',1.0,1],              // bolt erupts
+  ['flash',0,1],['glow',1.0,2],['glow',1.0,2],['rev',1.0,1],
+  ['fade',0.6,1],['fade',0.3,1],['fade',0.12,1],['empty',0,8],
+];
+
+/* ---- geometry ---------------------------------------------------------- */
+function displace(p0,p1,disp,detail){
+  let pts=[p0,p1];
+  for(let it=0;it<detail;it++){ const np=[];
+    for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1]; np.push(a);
+      const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,nx=-(b[1]-a[1]),ny=(b[0]-a[0]),nl=Math.hypot(nx,ny)||1,o=(Math.random()*2-1)*disp;
+      np.push([mx+nx/nl*o, my+ny/nl*o]); }
+    np.push(pts[pts.length-1]); pts=np; disp*=0.52; }
+  return pts;
+}
+function line(x0,y0,x1,y1,out){
+  let dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx-dy,x=x0,y=y0;
+  for(;;){ out.push([x,y]); if(x===x1&&y===y1)break; const e2=2*err; if(e2>-dy){err-=dy;x+=sx;} if(e2<dx){err+=dx;y+=sy;} }
+}
+function raster(poly){ const out=[]; for(let i=0;i<poly.length-1;i++){ const a=poly[i],b=poly[i+1],seg=[];
+  line(Math.round(a[0]),Math.round(a[1]),Math.round(b[0]),Math.round(b[1]),seg);
+  for(const p of seg){ if(!out.length||out[out.length-1][0]!==p[0]||out[out.length-1][1]!==p[1]) out.push(p); } } return out; }
+
+function genBolt(opt){
+  const ex=GW/2+(Math.random()*20-10), ey=GH-10, disp0=GW*opt.disp;
+  const mainPoly=displace([OX,OY],[ex,ey],disp0,opt.detail);
+  let pts=raster(mainPoly);
+  for(let bI=0;bI<opt.branches;bI++){
+    const t=0.25+Math.random()*0.6, vi=(t*(mainPoly.length-1))|0;
+    const a=mainPoly[vi], b=mainPoly[Math.min(mainPoly.length-1,vi+1)];
+    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]) + (Math.random()<0.5?-1:1)*(0.5+Math.random()*0.6);
+    const ln=opt.blen*GH*(0.6+Math.random()*0.5);
+    pts=pts.concat(raster(displace(a,[a[0]+Math.cos(ang)*ln,a[1]+Math.sin(ang)*ln],disp0*0.6,Math.max(3,opt.detail-1))));
+  }
+  if(opt.thick>=2){ const ex2=[]; for(const p of pts) ex2.push([p[0]+1,p[1]]); pts=pts.concat(ex2); }
+  const spray=[], ns=7+(Math.random()*5|0);
+  for(let i=0;i<ns;i++){ const a=Math.random()*Math.PI, r=1+Math.random()*5;
+    spray.push([Math.round(ex+Math.cos(a)*r*1.3), Math.round(ey+Math.abs(Math.sin(a))*r*0.7)]); }
+  const seen=new Set(), main=[];
+  pts.filter(p=>p[0]>=0&&p[0]<GW&&p[1]>=0&&p[1]<GH).sort((a,b)=> a[1]-b[1]||a[0]-b[0])
+     .forEach(p=>{ const k=p[0]+','+p[1]; if(!seen.has(k)){ seen.add(k); main.push(p); } });
+  return { main, spray: spray.filter(p=>p[0]>=0&&p[0]<GW&&p[1]>=0&&p[1]<GH) };
+}
+function edges(pts, rad){ const s=new Set(pts.map(p=>p[0]+','+p[1])), out=new Set(), res=[];
+  for(const [x,y] of pts) for(let dx=-rad;dx<=rad;dx++) for(let dy=-rad;dy<=rad;dy++){
+    if((dx||dy)===0||Math.abs(dx)+Math.abs(dy)>rad) continue; const k=(x+dx)+','+(y+dy);
+    if(!s.has(k)&&!out.has(k)){ out.add(k); res.push([x+dx,y+dy]); } } return res; }
+
+/* ---- per-canvas strike ------------------------------------------------- */
+function makeStrike(opt){
+  const cvs=document.createElement('canvas'); cvs.width=GW; cvs.height=GH;
+  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  const buf=ctx.createImageData(GW,GH);
+  let bolt=genBolt(opt), idx=0, stepStart=0, composed=false;
+  function put(pts,c){ const d=buf.data; for(const [x,y] of pts){ if(x<0||y<0||x>=GW||y>=GH)continue;
+    const i=(y*GW+x)*4; d[i]=c[0];d[i+1]=c[1];d[i+2]=c[2];d[i+3]=255; } }
+  function core(r){ const p=[]; for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++){ const d=Math.hypot(x,y);
+    if(d<=r) put([[OX+x,OY+y]], d<r*0.5?WHITE:BRIGHT); } }
+  function compose(step){
+    buf.data.fill(0);
+    const [k,arg]=step, full=bolt.main.concat(bolt.spray);
+    if(k==='empty') return;
+    if(k==='ball'){
+      const r=3+arg*7;
+      for(let y=-r-2;y<=r+2;y++) for(let x=-r-2;x<=r+2;x++){ const d=Math.hypot(x,y);
+        if(d>r){ if(d<r+2 && Math.random()<0.3*(1-(d-r)/2)) put([[OX+x,OY+y]],BRIGHT); continue; }
+        if(d>r*0.8 && Math.random()<(d-r*0.8)/(r*0.2+0.01)*0.6) continue;
+        put([[OX+x,OY+y]], d<r*0.38?WHITE : d<r*0.72?BRIGHT : BOLT); }
+      put([[OX,OY]],WHITE);
+    } else if(k==='burst'){
+      const R=5+arg*16, th=Math.max(1,(3*(1-arg))|0)+1;
+      for(let deg=0;deg<360;deg+=3){ const a=deg*Math.PI/180;
+        for(let t=0;t<th;t++){ const rr=R-t; put([[Math.round(OX+Math.cos(a)*rr),Math.round(OY+Math.sin(a)*rr)]], t===0?WHITE:BRIGHT); } }
+      for(let kk=0;kk<11;kk++){ const a=kk*(2*Math.PI/11)+(Math.random()*0.5-0.25);
+        const r0=R*0.55, r1=R+2+Math.random()*4, seg=[];
+        line(Math.round(OX+Math.cos(a)*r0),Math.round(OY+Math.sin(a)*r0),Math.round(OX+Math.cos(a)*r1),Math.round(OY+Math.sin(a)*r1),seg);
+        seg.forEach((p,i)=> put([p], i===seg.length-1?WHITE:BRIGHT)); }
+      core(Math.max(1,(5*(1-arg))|0));
+    } else if(k==='rev'){ put(arg>=1?full:bolt.main.slice(0,(bolt.main.length*arg)|0), BOLT); core(3); }
+    else if(k==='glow'){ put(edges(bolt.main,1),BOLT); put(full,BRIGHT); core(3); }
+    else if(k==='flash'){ put(edges(bolt.main,2),BOLT); put(edges(bolt.main,1),BRIGHT); put(full,WHITE); core(4); }
+    else if(k==='fade'){ put(full.filter(()=>Math.random()<arg),BOLT); }
+  }
+  return { cvs, tick(ts){ if(!stepStart) stepStart=ts; const step=SEQ[idx];
+    if(!composed){ compose(step); ctx.putImageData(buf,0,0); composed=true; }
+    if(ts-stepStart>=step[2]*UNIT){ idx++; if(idx>=SEQ.length){ idx=0; bolt=genBolt(opt); } stepStart=ts; composed=false; } } };
+}
+
+const strikes=OPTS.map(o=>{
+  const cell=document.createElement('div'); cell.className='cell';
+  const s=makeStrike(o); cell.appendChild(s.cvs);
+  const lab=document.createElement('div'); lab.className='lab'; lab.innerHTML=o.id+' · <b>'+o.name+'</b>';
+  cell.appendChild(lab); document.getElementById('row').appendChild(cell);
+  return s;
+});
+function frame(ts){ for(const s of strikes) s.tick(ts); requestAnimationFrame(frame); }
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
