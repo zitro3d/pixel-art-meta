@@ -80,7 +80,7 @@ function tendrils(poly, opt, len0){
 function makeStrike(opt){
   const out=new Uint8ClampedArray(N*4);
   const DIAG=Math.hypot(GW,GH);
-  let mainsPts=[], polys=[], tend=[], maxD=1, cyc0=null, lastGen=-1e9, phase=Math.random()*6.283;
+  let mainsPts=[], polys=[], tend=[], maxD=1, cyc0=null, lastGen=-1e9, struck=0, phase=Math.random()*6.283;
   function newStroke(){
     polys=[]; mainsPts=[]; maxD=1;
     for(let k=0;k<opt.mains;k++){
@@ -97,17 +97,20 @@ function makeStrike(opt){
   function regenTend(){ tend=[]; for(const poly of polys) tend=tend.concat(tendrils(poly,opt, Math.hypot(GW,GH)*0.5)); }
   return { out, advance(now){
     if(cyc0===null) cyc0=now;
-    let cyc=now-cyc0; if(cyc>=CYCLE){ cyc0=now; cyc=0; newStroke(); }
+    let cyc=now-cyc0; if(cyc>=CYCLE){ cyc0=now; cyc=0; struck=0; newStroke(); }
     if(mainsPts.length===0) newStroke();
     const p=cyc/CYCLE, t=now*0.001+phase;
-    // envelope: charge -> grow -> hold(crackle) -> fade
-    let front, fade=1, ball=0;
-    if(p<0.14){ ball=p/0.14; front=0; }
-    else if(p<0.44){ const u=(p-0.14)/0.30; front=(1-(1-u)*(1-u))*maxD*1.04; ball=1; }
-    else { front=maxD*1.04; ball=1; }
-    if(p>=0.5 && p<0.56 && lastGen!==-2){ newStroke(); lastGen=-2; }   // one quick re-strike (moves)
-    if(p<0.5||p>=0.56) lastGen=lastGen===-2?now:lastGen;
-    if(p>=0.78) fade=Math.max(0,1-(p-0.78)/0.22);
+    // STRIKE envelope: snap in instantly, flash, rapid re-strikes, fade, dark pause
+    const front=maxD*1.05;
+    const ST=[0.02,0.10,0.18];
+    let want=0; for(const s of ST) if(p>=s) want++;
+    while(struck<want){ newStroke(); struck++; }
+    const ball = p<0.02 ? p/0.02 : 1;
+    let fade=0, lastSt=-1; for(const s of ST) if(p>=s) lastSt=s;
+    if(lastSt>=0) fade=1.4*Math.exp(-(p-lastSt)/0.09);
+    if(p>=0.28 && p<0.50) fade=Math.max(fade, 0.34*(0.7+0.3*Math.sin(t*44)));
+    else if(p>=0.50 && p<0.64) fade=Math.max(0, 0.34*(1-(p-0.50)/0.14));
+    else if(p>=0.64) fade=0;
     acc.fill(0);
     // hot origin burst
     const bz=0.7+0.3*Math.sin(t*30);
