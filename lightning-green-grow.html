@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Green Lightning — Growing Jagged | pixel-art-meta</title>
+<style>
+  html,body{margin:0;min-height:100%;color:#a6d8b2;font:13px ui-monospace,Menlo,Consolas,monospace;
+    background:#060a06;
+    background-image:
+      linear-gradient(45deg,#0a0f0a 25%,transparent 25%,transparent 75%,#0a0f0a 75%),
+      linear-gradient(45deg,#0a0f0a 25%,transparent 25%,transparent 75%,#0a0f0a 75%);
+    background-size:24px 24px; background-position:0 0,12px 12px;}
+  h1{font-size:15px;color:#d6ffdc;text-align:center;margin:16px 0 2px}
+  p.sub{text-align:center;margin:0 0 10px;color:#6f9a78}
+  .row{display:flex;gap:14px;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:6px 14px 24px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:62vh; width:auto; background:#000; border-radius:3px; }
+  .lab{color:#9fffb0;letter-spacing:1px}
+  .lab b{color:#fff}
+</style>
+</head>
+<body>
+  <h1>GREEN LIGHTNING — GROWING (TIGHT · JAGGED)</h1>
+  <p class="sub">starts from nothing and grows the bolt outward, tendrils peeling off as it draws (best over black · SCREEN/ADD)</p>
+  <div class="row" id="row"></div>
+
+<script>
+/* A separate green-lightning variant: a glowing bolt erupts from a hot top-left
+   origin and FANS OUT diagonally to the lower-right into several long spreading
+   branches with tendrils. Grows on, crackles, fades, re-forms. Additive green
+   glow + white-hot core -> green-weighted tonemap -> alpha. */
+const GW=340, GH=340, MARGIN=6, N=GW*GH, CYCLE=2500;
+const OX=44, OY=52, BASE=0.62;                 // origin (top-left) + fan centre angle (down-right)
+const acc=new Float32Array(N*3);
+const GLOW=[.18,1,.34], CORE=[.72,1,.80], WHITE=[1,1,1];
+
+const OPTS=[
+  {id:'A', name:'Tight',  mains:3, spread:0.26, len:1.05, disp:0.18, detail:7, branches:7,  blen:0.30, thick:1},
+  {id:'B', name:'Bundle', mains:4, spread:0.34, len:1.05, disp:0.19, detail:7, branches:9,  blen:0.32, thick:1},
+  {id:'C', name:'Spear',  mains:2, spread:0.16, len:1.12, disp:0.16, detail:7, branches:6,  blen:0.30, thick:2},
+  {id:'D', name:'Frenzy', mains:5, spread:0.44, len:1.02, disp:0.24, detail:8, branches:12, blen:0.32, thick:1},
+];
+
+function add(x,y,r,g,b){ x|=0;y|=0; if(x<MARGIN||y<MARGIN||x>=GW-MARGIN||y>=GH-MARGIN)return; const i=(y*GW+x)*3; acc[i]+=r;acc[i+1]+=g;acc[i+2]+=b; }
+function glow(cx,cy,rad,c,inten){ if(inten<=0)return; const x0=Math.max(0,(cx-rad)|0),x1=Math.min(GW-1,(cx+rad)|0),y0=Math.max(0,(cy-rad)|0),y1=Math.min(GH-1,(cy+rad)|0);
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){ const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy); if(d>rad)continue; let f=1-d/rad; f*=f; add(x,y,c[0]*f*inten,c[1]*f*inten,c[2]*f*inten); } }
+function displace(p0,p1,disp,detail){
+  let pts=[p0,p1];
+  for(let it=0;it<detail;it++){ const np=[];
+    for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1]; np.push(a);
+      const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,nx=-(b[1]-a[1]),ny=(b[0]-a[0]),nl=Math.hypot(nx,ny)||1,o=(Math.random()*2-1)*disp;
+      np.push([mx+nx/nl*o,my+ny/nl*o]); }
+    np.push(pts[pts.length-1]); pts=np; disp*=0.55; }
+  return pts;
+}
+function rasterD(poly, ox, oy){                  // points with distance from origin, for growth reveal
+  const out=[];
+  for(let i=0;i<poly.length-1;i++){ const a=poly[i],b=poly[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]),S=Math.max(1,Math.ceil(L));
+    for(let s=0;s<=S;s++){ const k=s/S,x=a[0]+(b[0]-a[0])*k,y=a[1]+(b[1]-a[1])*k; out.push([x,y,Math.hypot(x-ox,y-oy)]); } }
+  return out;
+}
+// recursive tendrils off a polyline (biased to continue down-right), tapered
+function tendrils(poly, opt, len0){
+  const out=[];
+  function grow(fromPoly, d0, detail, blen, depth){
+    const t=0.2+Math.random()*0.7, vi=(t*(fromPoly.length-1))|0;
+    const a=fromPoly[vi], b=fromPoly[Math.min(fromPoly.length-1,vi+1)];
+    const ang=Math.atan2(b[1]-a[1],b[0]-a[0]) + (Math.random()<0.5?-1:1)*(0.3+Math.random()*1.05);
+    const ln=blen*len0*(0.28+Math.random()*1.05);
+    const poly2=displace(a,[a[0]+Math.cos(ang)*ln,a[1]+Math.sin(ang)*ln], d0, Math.max(3,detail-1));
+    const raw=rasterD(poly2,OX,OY);
+    for(let i=0;i<raw.length;i++){ const u=raw.length>1?i/(raw.length-1):0; if(u>0.5&&Math.random()<(u-0.5)/0.5*0.9)continue; out.push(raw[i]); }
+    if(depth>0){ const nb=1+(Math.random()*2|0); for(let i=0;i<nb;i++) if(Math.random()<0.65) grow(poly2,d0*0.7,detail-1,blen*0.6,depth-1); }
+  }
+  for(let b=0;b<opt.branches;b++) grow(poly, opt.disp*len0*0.6, opt.detail, opt.blen, 1);
+  return out;
+}
+
+function makeStrike(opt){
+  const out=new Uint8ClampedArray(N*4);
+  const DIAG=Math.hypot(GW,GH);
+  let mainsPts=[], polys=[], tend=[], maxD=1, cyc0=null, lastGen=-1e9, struck=0, phase=Math.random()*6.283;
+  function newStroke(){
+    polys=[]; mainsPts=[]; maxD=1;
+    for(let k=0;k<opt.mains;k++){
+      const ang=BASE + ((opt.mains>1?k/(opt.mains-1):0.5)-0.5)*opt.spread + (Math.random()*2-1)*0.16;
+      const len=opt.len*(0.6+Math.random()*0.6)*DIAG*0.72;
+      const tgt=[OX+Math.cos(ang)*len, OY+Math.sin(ang)*len];
+      const poly=displace([OX,OY],tgt, opt.disp*len*0.42, opt.detail);   // extra-jagged wandering main bolt
+      polys.push(poly);
+      let pts=rasterD(poly,OX,OY); if(opt.thick>=2) pts=pts.concat(pts.map(p=>[p[0]+1,p[1],p[2]]));
+      for(const p of pts){ mainsPts.push(p); if(p[2]>maxD)maxD=p[2]; }
+    }
+    regenTend();
+  }
+  function regenTend(){ tend=[]; for(const poly of polys) tend=tend.concat(tendrils(poly,opt, Math.hypot(GW,GH)*0.5)); }
+  return { out, advance(now){
+    if(cyc0===null) cyc0=now;
+    let cyc=now-cyc0; if(cyc>=CYCLE){ cyc0=now; cyc=0; struck=0; newStroke(); }
+    if(mainsPts.length===0) newStroke();
+    const p=cyc/CYCLE, t=now*0.001+phase;
+    // GROW envelope: start from NOTHING, draw the bolt outward from the origin,
+    // tendrils peel off as the front passes, then hold (crackle), fade, dark pause.
+    let front, fade=1, ball=0;
+    if(p<0.06){ ball=p/0.06; front=0; }                                    // charge at origin (from nothing)
+    else if(p<0.48){ const u=(p-0.06)/0.42; front=(1-(1-u)*(1-u))*maxD*1.05; ball=1; }  // GROW outward
+    else { front=maxD*1.05; ball=1; }
+    if(p>=0.74) fade=Math.max(0,1-(p-0.74)/0.24);                          // fade
+    else if(p>=0.48) fade=0.85+0.15*Math.sin(t*40);                        // grown -> gentle crackle flicker
+    acc.fill(0);
+    // hot origin burst
+    const bz=0.7+0.3*Math.sin(t*30);
+    glow(OX,OY, 14, GLOW, (0.35+0.5*ball)*fade); glow(OX,OY,7,CORE,(0.6*ball)*fade*bz); glow(OX,OY,3,WHITE,(0.9*ball)*fade*bz);
+    // main fan branches, revealed up to the growth front, glowing, with flicker + hot tip
+    const cw=opt.thick>=2?1.9:1.3;
+    for(const q of mainsPts){ if(q[2]>front) continue;
+      const fl=0.7+0.3*Math.sin(q[2]*0.5+t*26), tip=1+1.4*Math.max(0,1-(front-q[2])/6);
+      const taper=1-0.45*(q[2]/maxD);                                    // thinner/dimmer toward the ends
+      glow(q[0],q[1], cw+2.2*taper, GLOW, 0.5*fl*fade*tip*taper); glow(q[0],q[1], cw, CORE, 0.8*fl*fade*tip*taper);
+      add(q[0],q[1],WHITE[0]*0.9*fl*fade*taper,WHITE[1]*0.9*fl*fade*taper,WHITE[2]*0.9*fl*fade*taper); }
+    // tendrils crackle (regenerate while grown)
+    if(front>=maxD && now-lastGen>=70 && lastGen>=0){ regenTend(); lastGen=now; }
+    for(const q of tend){ if(q[2]>front) continue; glow(q[0],q[1],1.9,GLOW,0.42*fade); add(q[0],q[1],CORE[0]*0.6*fade,CORE[1]*0.6*fade,CORE[2]*0.6*fade); }
+    // green-weighted tonemap + alpha
+    for(let i=0;i<N;i++){ let r=acc[i*3],g=acc[i*3+1],b=acc[i*3+2];
+      r=1-Math.exp(-r*0.82); g=1-Math.exp(-g*1.6); b=1-Math.exp(-b*0.85);
+      const a=Math.min(1,Math.max(r,g,b)*2.0);
+      out[i*4]=r*255; out[i*4+1]=g*255; out[i*4+2]=b*255; out[i*4+3]=a*255; }
+    return out;
+  } };
+}
+
+if(typeof document!=='undefined'){
+  const strikes=OPTS.map(o=>{
+    const cell=document.createElement('div'); cell.className='cell';
+    const cvs=document.createElement('canvas'); cvs.width=GW; cvs.height=GH; cell.appendChild(cvs);
+    const lab=document.createElement('div'); lab.className='lab'; lab.innerHTML=o.id+' · <b>'+o.name+'</b>'; cell.appendChild(lab);
+    document.getElementById('row').appendChild(cell);
+    const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+    return {s:makeStrike(o), ctx};
+  });
+  function frame(ts){ for(const o of strikes){ const buf=o.s.advance(ts); o.ctx.putImageData(new ImageData(buf,GW,GH),0,0); } requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
