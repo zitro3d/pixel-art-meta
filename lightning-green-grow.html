@@ -48,7 +48,7 @@ function glow(cx,cy,rad,c,inten){ if(inten<=0)return; const x0=Math.max(0,(cx-ra
 
 function makeStrike(opt){
   const out=new Uint8ClampedArray(N*4), DIAG=Math.hypot(GW,GH);
-  const JAG=0.42+opt.disp*1.4, PB=Math.min(0.16,0.02+opt.branches*0.009), STEP=0.028;
+  const JAG=0.55+opt.disp*1.7, PB=Math.min(0.22,0.03+opt.branches*0.012), STEP=0.017;
   let trail=[], tips=[], mode='grow', modeT=0, last=null, stepAcc=0, F=1, phase=Math.random()*6.283;
   function reset(){ trail=[]; tips=[]; mode='grow'; modeT=0; stepAcc=0;
     for(let k=0;k<opt.mains;k++){ const a=BASE + ((opt.mains>1?k/(opt.mains-1):0.5)-0.5)*opt.spread + (Math.random()*2-1)*0.12;
@@ -57,14 +57,14 @@ function makeStrike(opt){
   function step(){
     const nt=[];
     for(const tp of tips){
-      tp.aim += (Math.random()*2-1)*0.06;                                  // slow wander of heading
-      const ang=tp.aim + (Math.random()*2-1)*JAG, SL=5+Math.random()*4;    // jagged step
+      tp.aim += (Math.random()*2-1)*0.12;                                  // slow wander of heading
+      const ang=tp.aim + (Math.random()*2-1)*JAG, SL=6+Math.random()*7;    // jagged step
       const nx=tp.x+Math.cos(ang)*SL, ny=tp.y+Math.sin(ang)*SL;
       trail.push([tp.x,tp.y,nx,ny,tp.gen]);                                // lay down a new segment
       tp.x=nx; tp.y=ny; tp.dist+=SL;
-      if(!inb(nx,ny) || tp.dist>=tp.max || (tp.gen>0 && Math.random()<0.03)) continue;   // tip dies
+      if(!inb(nx,ny) || tp.dist>=tp.max || (tp.gen>0 && Math.random()<0.045) || (tp.gen===0 && Math.random()<0.006)) continue;   // tip dies
       if(tp.gen<2 && tips.length+nt.length<50 && Math.random()<PB)          // sprout a branch
-        nt.push({x:nx,y:ny,aim:ang+(Math.random()<0.5?-1:1)*(0.5+Math.random()*0.6),dist:0,max:tp.max*(0.25+Math.random()*0.32),gen:tp.gen+1});
+        nt.push({x:nx,y:ny,aim:ang+(Math.random()<0.5?-1:1)*(0.4+Math.random()*0.95),dist:0,max:tp.max*(0.25+Math.random()*0.32),gen:tp.gen+1});
       nt.push(tp);
     }
     tips=nt; if(trail.length>1700) trail.splice(0,trail.length-1700);
@@ -76,7 +76,7 @@ function makeStrike(opt){
   return { out, advance(now){
     if(last===null){ last=now; reset(); }
     const dt=Math.min(0.05,(now-last)/1000); last=now; modeT+=dt; const t=now*0.001+phase;
-    if(mode==='grow'){ stepAcc+=dt; while(stepAcc>=STEP){ step(); stepAcc-=STEP; } if(tips.length===0||modeT>1.9){ mode='hold'; modeT=0; } F=1; }
+    if(mode==='grow'){ stepAcc+=dt; while(stepAcc>=STEP){ step(); stepAcc-=STEP; } if(tips.length===0||modeT>1.4){ mode='hold'; modeT=0; } F=1; }
     else if(mode==='hold'){ F=0.9+0.1*Math.sin(t*34); if(modeT>0.35){ mode='fade'; modeT=0; } }
     else if(mode==='fade'){ F=Math.max(0,1-modeT/0.45); if(modeT>0.45){ mode='pause'; modeT=0; } }
     else { F=0; if(modeT>0.35) reset(); }
