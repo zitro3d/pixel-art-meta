@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The Chrono-Core | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;background:#05030c;display:flex;align-items:center;justify-content:center;
+    font:12px ui-monospace,Menlo,Consolas,monospace;color:#8fa;}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:10px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges;
+    width:min(84vh,84vw); height:min(84vh,84vw);
+    background:#000; box-shadow:0 0 60px #17103a, 0 0 120px #17103a55; border-radius:4px; }
+  .cap{color:#47ebff;letter-spacing:3px;font-size:11px;opacity:.8;text-transform:uppercase}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <canvas id="c" width="128" height="128"></canvas>
+    <div class="cap">THE CHRONO-CORE · SYSTEM: STABLE</div>
+  </div>
+
+<script>
+/* THE CHRONO-CORE — 128x128 virtual canvas, strict indexed palette.
+   Layered Z-order render (pure buffer -> pixelated blit). The Gem (C3-5) and
+   the Containment-Grid nodes (C9) are built from a single rotation angle THETA
+   so they can be spun as one group on the vertical Y-axis; the metal caps are
+   static. Shadows shift toward cool plum/indigo, highlights toward cream/cyan. */
+const W=128, H=128, CX=64, CY=64;
+
+/* ---- Palette Index (strict, no bleeding) ------------------------------- */
+const C1=[0x17,0x10,0x3a], C2=[0x00,0x00,0x00],
+      C3=[0x3f,0x22,0x68], C4=[0xb0,0x5a,0xe4], C5=[0xf2,0xaf,0xff],
+      C6=[0x2b,0x2b,0x2b], C7=[0x6a,0x6a,0x6a], C8=[0xbf,0xbf,0xbf],
+      C9=[0x47,0xeb,0xff], C10=[0xd8,0x45,0xe2];
+
+const buf=new Uint8ClampedArray(W*H*4);
+const BAYER=[[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+function px(x,y,c,a){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H)return; const i=(y*W+x)*4;
+  buf[i]=c[0];buf[i+1]=c[1];buf[i+2]=c[2];buf[i+3]=a===undefined?255:a; }
+function clear(){ for(let i=0;i<buf.length;i+=4){ buf[i]=0;buf[i+1]=0;buf[i+2]=0;buf[i+3]=255; } }
+
+/* value-noise fbm for the cosmic dust */
+function hash(x,y){ let n=(x|0)*374761393+(y|0)*668265263; n=(n^(n>>13))*1274126177; return ((n^(n>>16))>>>0)/4294967296; }
+function vn(x,y){ const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,
+  tl=hash(xi,yi),tr=hash(xi+1,yi),bl=hash(xi,yi+1),br=hash(xi+1,yi+1),
+  u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf); return tl*(1-u)*(1-v)+tr*u*(1-v)+bl*(1-u)*v+br*u*v; }
+function fbm(x,y){ let s=0,a=.5,f=1; for(let i=0;i<4;i++){ s+=a*vn(x*f,y*f); f*=2; a*=.5; } return s; }
+
+/* ---- geometry helpers -------------------------------------------------- */
+function line(x0,y0,x1,y1,cb){ x0|=0;y0|=0;x1|=0;y1|=0;
+  let dx=Math.abs(x1-x0),dy=Math.abs(y1-y0),sx=x0<x1?1:-1,sy=y0<y1?1:-1,err=dx-dy;
+  for(;;){ cb(x0,y0); if(x0===x1&&y0===y1)break; const e2=2*err; if(e2>-dy){err-=dy;x0+=sx;} if(e2<dx){err+=dx;y0+=sy;} } }
+// scanline-fill a convex polygon, calling cb(x,y) per interior pixel
+function fillPoly(pts,cb){ let miny=1e9,maxy=-1e9; for(const p of pts){ if(p[1]<miny)miny=p[1]; if(p[1]>maxy)maxy=p[1]; }
+  miny=Math.max(0,Math.ceil(miny)); maxy=Math.min(H-1,Math.floor(maxy));
+  for(let y=miny;y<=maxy;y++){ const xs=[];
+    for(let i=0;i<pts.length;i++){ const a=pts[i],b=pts[(i+1)%pts.length];
+      if((a[1]<=y&&b[1]>y)||(b[1]<=y&&a[1]>y)){ const t=(y-a[1])/(b[1]-a[1]); xs.push(a[0]+t*(b[0]-a[0])); } }
+    xs.sort((p,q)=>p-q);
+    for(let k=0;k+1<xs.length;k+=2){ const x0=Math.ceil(xs[k]),x1=Math.floor(xs[k+1]); for(let x=x0;x<=x1;x++) cb(x,y); } } }
+
+/* =======================================================================
+   LAYER 0 — Deep Background : swirling cosmic-dust aura (C1, +C3 filaments)
+   ======================================================================= */
+function drawAura(t){
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const dx=x-CX, dy=y-CY, r=Math.hypot(dx,dy);
+    if(r<25||r>63) continue;                                  // annulus (LAYER 1 void stays black inside)
+    const ang=Math.atan2(dy,dx);
+    const s=ang*1.7 + r*0.16 + t*0.35;                        // swirl the sample coords
+    const n=fbm(Math.cos(s)*r*0.11 + 20, Math.sin(s)*r*0.11 + r*0.09 + 10);
+    const edge=Math.min(1,(r-25)/7)*Math.min(1,(63-r)/9);     // fade at inner/outer rim
+    const d=(n-0.30)*edge;                                    // lower threshold -> denser dust
+    if(d<=0) continue;
+    px(x,y, d>0.30 ? C3 : C1);                                // brighter plum filaments over indigo dust
+  }
+  // humming cyan energy arcs orbiting behind the gem (brightest on the flanks)
+  for(const R of [28,35,43,50]){
+    for(let a=-Math.PI;a<Math.PI;a+=0.015){
+      const flank=Math.cos(a)*Math.cos(a);                    // 1 on left/right, 0 top/bottom
+      if(flank<0.30) continue;
+      const wob=Math.sin(a*2+t*1.4+R*0.3)*0.5+0.5;
+      if(wob<0.35) continue;
+      const x=CX+Math.cos(a)*R, y=CY+Math.sin(a)*R*1.02;
+      if(Math.hypot(x-CX,y-CY)<26) continue;
+      const bright=flank>0.7 && wob>0.7;
+      px(x,y, C9, bright?220:120);
+    }
+  }
+}
+
+/* =======================================================================
+   LAYER 2 — The Faceted Gem : vertical octahedral crystal (C3,C4,C5)
+   Built from a hexagonal cross-section spun by THETA -> true Y-rotation.
+   ======================================================================= */
+const GEM={ apexT:34, apexB:94, yU:53, yL:74, Rx:21, K:6 };
+const GTOP=GEM.apexT, GBOT=GEM.apexB, GH=GEM.apexB-GEM.apexT;
+const LIGHT=(function(){ const v=[-0.55,0.62,0.56], m=Math.hypot(...v); return v.map(k=>k/m); })(); // upper-left-front (Y up+)
+function gemColor(t,x,y){                                     // ramp C3->C4->C5 with 4x4 ordered dither
+  t=Math.max(0,Math.min(1,t)); const pos=t*2, i=Math.floor(pos), f=pos-i;
+  const bd=BAYER[y&3][x&3]/16; const ramp=[C3,C4,C5];
+  return (f>bd? ramp[Math.min(2,i+1)] : ramp[Math.min(2,i)]);
+}
+function gemFaces(theta){
+  const {apexT,apexB,yU,yL,Rx,K}=GEM, faces=[];
+  const V=[]; for(let i=0;i<K;i++){ const phi=theta + (90+i*60)*Math.PI/180;
+    V.push({x:CX+Rx*Math.cos(phi), z:Math.sin(phi), c:Math.cos(phi), phi}); }
+  function shade(nx,ny,nz){ const m=Math.hypot(nx,ny,nz)||1; return Math.max(0,(nx*LIGHT[0]+ny*LIGHT[1]+nz*LIGHT[2])/m); }
+  for(let i=0;i<K;i++){ const a=V[i], b=V[(i+1)%K], mz=(a.z+b.z)/2, mc=(a.c+b.c)/2;
+    if(mz<=0.02) continue;                                    // cull back faces
+    // top pyramid facet (normal tilts up)
+    faces.push({z:mz, t:shade(mc*0.6, 0.8, mz*0.6),
+      pts:[[CX,apexT],[a.x,yU],[b.x,yU]]});
+    // body facet (vertical, normal in XZ)
+    faces.push({z:mz, t:shade(mc,0,mz),
+      pts:[[a.x,yU],[b.x,yU],[b.x,yL],[a.x,yL]]});
+    // bottom pyramid facet (normal tilts down)
+    faces.push({z:mz, t:shade(mc*0.6,-0.8, mz*0.6),
+      pts:[[CX,apexB],[a.x,yL],[b.x,yL]]});
+  }
+  faces.sort((p,q)=>p.z-q.z);                                 // painter: far -> near
+  return {faces, V};
+}
+function drawGem(theta){
+  const {faces,V}=gemFaces(theta);
+  for(const f of faces){ fillPoly(f.pts,(x,y)=>{
+    const yn=(y-GTOP)/GH, t=f.t*(1.18-0.55*yn);               // vertical gradient (lighter top)
+    px(x,y, gemColor(t,x,y)); }); }
+  // crisp specular ridge down the front-most vertex (brightest edge)
+  let fv=V[0]; for(const v of V) if(v.z>fv.z) fv=v;
+  line(fv.x,GEM.apexT, fv.x,GEM.yU,(x,y)=>{ px(x,y,C5); });
+  line(fv.x,GEM.yU, fv.x,GEM.yL,(x,y)=>{ if((y&1)===0) px(x,y,C5); else px(x,y,C4); });
+  line(fv.x,GEM.yL, fv.x,GEM.apexB,(x,y)=>{ if((y&1)===0) px(x,y,C4); });
+  px(fv.x,GEM.apexT-1,C5); px(fv.x,GEM.apexT,C5);             // hot tip
+}
+
+/* =======================================================================
+   LAYER 4 — Containment Grid : humming cyan web (C9), rotates with the gem
+   ======================================================================= */
+function gridNodes(theta){
+  const nodes=[], ring=[[0,-32],[50,-22],[50,22],[0,32],[-50,22],[-50,-22]];
+  for(let i=0;i<ring.length;i++){ const bx=ring[i][0], by=ring[i][1];
+    const x=CX + bx*Math.cos(theta) ,  y=CY + by;            // spin X on Y-axis (depth folds horizontally)
+    const depth=Math.sin(theta+i)*0.5+0.5;
+    nodes.push({x, y, depth}); }
+  return nodes;
+}
+function drawGrid(theta,t){
+  const n=gridNodes(theta);
+  const links=[[0,1],[1,2],[2,3],[3,4],[4,5],[5,0],[0,3],[1,4],[2,5],[0,2],[3,5]];
+  for(const [a,b] of links){ const p=n[a],q=n[b];
+    // faint humming strand: a moving dash reveals ~half the line, so it reads as translucent
+    line(p.x,p.y,q.x,q.y,(x,y)=>{ if(((x+y+(t*24|0))&1)===0) px(x,y,C9,170); }); }
+  for(const nd of n){ const hum=Math.sin(t*4+nd.x)*0.5+0.5;
+    // bright energy node = a small cyan diamond that pulses with the hum
+    px(nd.x,nd.y,C5); px(nd.x-1,nd.y,C9); px(nd.x+1,nd.y,C9); px(nd.x,nd.y-1,C9); px(nd.x,nd.y+1,C9);
+    if(hum>0.55){ px(nd.x-2,nd.y,C9,180); px(nd.x+2,nd.y,C9,180); px(nd.x,nd.y-2,C9,180); px(nd.x,nd.y+2,C9,180); } }
+}
+
+/* =======================================================================
+   LAYER 3 — Containment Cage : two static V-capped metal brackets (C6,7,8)
+   ======================================================================= */
+function drawCap(topCap){
+  // Geometry is authored for the TOP cap in absolute y; Y() mirrors it around
+  // the centre (y=64) for the bottom cap so both clamps are identical castings.
+  const Y = topCap ? (y)=>y : (y)=> (128-1-y);
+  const span=(y,x0,x1,c)=>{ const yy=Y(y); for(let x=x0;x<=x1;x++) px(x,yy,c); };
+  const dot=(x,y,c)=> px(x,Y(y),c);
+
+  // --- main horizontal bar (beveled slab) : light top edge, grey body, dark lip
+  const barTop=20, barBot=30, bx0=27, bx1=100;
+  span(barTop,   bx0+3, bx1-3, C8);                           // bright leading top edge (specular)
+  span(barTop+1, bx0+1, bx1-1, C8);
+  for(let y=barTop+2;y<=barBot-3;y++) span(y, bx0, bx1, C7);  // medium-grey face
+  span(barBot-2, bx0+1, bx1-1, C6);                           // dark underside lip (thickness)
+  span(barBot-1, bx0+2, bx1-2, C6);
+  span(barBot,   bx0+4, bx1-4, C6);
+  // rounded/beveled ends
+  for(const ex of [bx0,bx1]){ const s=ex===bx0?1:-1;
+    dot(ex,     barTop+1, C6); dot(ex+ -s, barTop, C6);
+    dot(ex-s*0, barBot-1, C6); }
+  // panel-mount rivets on the bar face
+  dot(bx0+5,barTop+4,C8); dot(bx1-5,barTop+4,C8);
+  dot(bx0+5,barBot-3,C6); dot(bx1-5,barBot-3,C6);
+
+  // --- raised readout panel on the TOP cap / matching nub on the BOTTOM cap
+  const px0=36, px1=91;
+  if(topCap){
+    span(8, px0+2, px1-2, C8);                                // panel top rim (lit)
+    for(let y=9;y<=18;y++) span(y, px0, px1, C6);             // dark screen (HUD bg)
+    span(19, px0, px1, C7); span(20, px0+1, px1-1, C7);       // panel base rim
+    for(let y=9;y<=18;y++){ dot(px0,y,C7); dot(px1,y,C7); }   // panel side edges
+    dot(px0,8,C7); dot(px1,8,C7);
+  } else {
+    // small centered hanging tab / nub
+    span(9,  54, 74, C8); for(let y=10;y<=15;y++) span(y,53,75,C7); span(16,55,73,C6);
+    dot(53,9,C6); dot(75,9,C6);
+  }
+
+  // --- V-shaped clamp legs reaching IN toward the gem (never touching it)
+  // left leg: from bar corner (34,barBot) angling down-inward; right mirrored.
+  for(let k=0;k<9;k++){ const yy=barBot+1+k;
+    const lx=34+Math.round(k*1.15), rx=(bx1-6)-Math.round(k*1.15);
+    px(lx,   Y(yy), k<2?C8:C7); px(lx-1, Y(yy), C6);          // leading edge lit, back edge dark
+    px(rx,   Y(yy), k<2?C8:C7); px(rx+1, Y(yy), C6);
+    if(k>0){ px(lx-1,Y(barBot+k),C7); px(rx+1,Y(barBot+k),C7); }
+  }
+  // clamp end-nodes (small bright terminals) — sit clear of the gem
+  const ey=barBot+9, elx=34+Math.round(9*1.15), erx=(bx1-6)-Math.round(9*1.15);
+  px(elx,Y(ey),C8); px(elx+1,Y(ey),C8); px(elx,Y(ey+1),C7); px(elx+1,Y(ey+1),C7);
+  px(erx,Y(ey),C8); px(erx-1,Y(ey),C8); px(erx,Y(ey+1),C7); px(erx-1,Y(ey+1),C7);
+}
+
+/* ---- LAYER 5a — HUD readout on the TOP cap : "SYSTEM: STABLE" (C9) ------ */
+const FONT={ // 3x5 glyphs
+ 'S':[0b111,0b100,0b111,0b001,0b111],'Y':[0b101,0b101,0b010,0b010,0b010],
+ 'T':[0b111,0b010,0b010,0b010,0b010],'E':[0b111,0b100,0b111,0b100,0b111],
+ 'M':[0b101,0b111,0b111,0b101,0b101],'A':[0b010,0b101,0b111,0b101,0b101],
+ 'B':[0b110,0b101,0b110,0b101,0b110],'L':[0b100,0b100,0b100,0b100,0b111],
+ ':':[0b000,0b010,0b000,0b010,0b000],' ':[0,0,0,0,0] };
+function text(str,tx,ty,c,dim){ let cx=tx;
+  for(const ch of str){ const g=FONT[ch]||FONT[' '];
+    for(let r=0;r<5;r++) for(let b=0;b<3;b++) if(g[r]&(1<<(2-b))){ if(dim && ((cx+b+r)&1)) continue; px(cx+b,ty+r,c); }
+    cx+=4; } }
+function drawHUD(t){
+  const blink = (Math.sin(t*3)>-0.6);                         // gently humming readout
+  text('SYSTEM:',50,9,C9);
+  text('STABLE',52,14,C9, !blink);
+}
+
+/* ---- LAYER 5b — Particle field : floating sparks (C9 / C10) ------------ */
+const SPARKS=[ // [x,y,color,size,phase]
+ [24,30,C9,1,0.2],[102,26,C10,1,1.1],[18,64,C9,2,2.0],[110,60,C9,1,0.6],
+ [30,96,C10,1,1.7],[98,98,C9,2,2.4],[46,20,C9,1,0.9],[84,108,C10,1,1.3],
+ [14,44,C10,1,0.3],[114,82,C9,1,2.1],[62,14,C9,1,1.5],[64,114,C9,1,0.7],
+ [22,84,C9,1,2.6],[106,42,C10,1,0.5],[40,110,C9,1,1.9],[90,18,C9,1,1.2] ];
+function drawSparks(t){
+  for(const s of SPARKS){ const tw=Math.sin(t*3+s[4]); if(tw<-0.2) continue;
+    const [x,y,c,sz]=s; px(x,y,c);
+    if(sz>1 && tw>0.4){ px(x-1,y,c);px(x+1,y,c);px(x,y-1,c);px(x,y+1,c); }   // 4-point sparkle when bright
+  }
+}
+
+/* ---- master compose in strict Z-order ---------------------------------- */
+function render(theta,t){
+  clear();                       // black field (C2)
+  drawAura(t);                   // L0 dust + L1 void (annulus leaves centre black) + energy arcs
+  drawGrid(theta,t);             // L4 grid web (behind gem)
+  drawGem(theta);                // L2 crystal
+  drawGridFront(theta,t);        // L4 a few web strands humming over the gem, very faint
+  drawCap(true); drawCap(false); // L3 static metal caps (must not touch gem)
+  drawHUD(t);                    // L5a HUD text on top cap
+  drawSparks(t);                 // L5b particle field (front-most)
+  return buf;
+}
+function drawGridFront(theta,t){ const n=gridNodes(theta);
+  const links=[[0,3],[1,4],[2,5]];
+  for(const [a,b] of links){ const p=n[a],q=n[b];
+    line(p.x,p.y,q.x,q.y,(x,y)=>{ if(((x+y+(t*20|0))&7)===0) px(x,y,C9,120); }); } }
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  let t0=0;
+  function frame(ts){ if(!t0)t0=ts; const t=(ts-t0)*0.001;
+    const theta=t*0.6;                                        // slow Y-axis rotation of gem+grid group
+    ctx.putImageData(new ImageData(render(theta,t),W,H),0,0);
+    requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
