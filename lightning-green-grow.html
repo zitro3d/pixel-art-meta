@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Green Lightning — Growing (Leader Sim) | pixel-art-meta</title>
+<style>
+  html,body{margin:0;min-height:100%;color:#a6d8b2;font:13px ui-monospace,Menlo,Consolas,monospace;
+    background:#060a06;
+    background-image:
+      linear-gradient(45deg,#0a0f0a 25%,transparent 25%,transparent 75%,#0a0f0a 75%),
+      linear-gradient(45deg,#0a0f0a 25%,transparent 25%,transparent 75%,#0a0f0a 75%);
+    background-size:24px 24px; background-position:0 0,12px 12px;}
+  h1{font-size:15px;color:#d6ffdc;text-align:center;margin:16px 0 2px}
+  p.sub{text-align:center;margin:0 0 10px;color:#6f9a78}
+  .row{display:flex;gap:14px;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:6px 14px 24px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:62vh; width:auto; background:#000; border-radius:3px; }
+  .lab{color:#9fffb0;letter-spacing:1px}
+  .lab b{color:#fff}
+</style>
+</head>
+<body>
+  <h1>GREEN LIGHTNING — GROWING (LEADER SIM)</h1>
+  <p class="sub">advancing tips draw the bolt segment-by-segment over time &amp; sprout branches — it truly grows, not a reveal</p>
+  <div class="row" id="row"></div>
+
+<script>
+/* Growth SIMULATION (not a mask reveal): each active "leader" tip steps forward
+   every tick, laying down a new jagged segment and occasionally branching. The
+   bolt extends through time; when all tips finish it holds, fades, and re-seeds.
+   Additive green glow + white-hot leaders -> green-weighted tonemap -> alpha. */
+const GW=340, GH=340, MARGIN=6, N=GW*GH;
+const OX=44, OY=52, BASE=0.62;                          // top-left origin + fan centre angle
+const acc=new Float32Array(N*3);
+const GLOW=[.18,1,.34], CORE=[.72,1,.80], WHITE=[1,1,1];
+
+const OPTS=[
+  {id:'A', name:'Tight',  mains:3, spread:0.26, len:1.05, disp:0.20, branches:7,  thick:1},
+  {id:'B', name:'Bundle', mains:4, spread:0.34, len:1.05, disp:0.22, branches:9,  thick:1},
+  {id:'C', name:'Spear',  mains:2, spread:0.16, len:1.14, disp:0.17, branches:6,  thick:2},
+  {id:'D', name:'Frenzy', mains:5, spread:0.44, len:1.02, disp:0.26, branches:12, thick:1},
+];
+
+function add(x,y,r,g,b){ x|=0;y|=0; if(x<MARGIN||y<MARGIN||x>=GW-MARGIN||y>=GH-MARGIN)return; const i=(y*GW+x)*3; acc[i]+=r;acc[i+1]+=g;acc[i+2]+=b; }
+function glow(cx,cy,rad,c,inten){ if(inten<=0)return; const x0=Math.max(0,(cx-rad)|0),x1=Math.min(GW-1,(cx+rad)|0),y0=Math.max(0,(cy-rad)|0),y1=Math.min(GH-1,(cy+rad)|0);
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){ const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy); if(d>rad)continue; let f=1-d/rad; f*=f; add(x,y,c[0]*f*inten,c[1]*f*inten,c[2]*f*inten); } }
+
+function makeStrike(opt){
+  const out=new Uint8ClampedArray(N*4), DIAG=Math.hypot(GW,GH);
+  const JAG=0.55+opt.disp*1.7, PB=Math.min(0.22,0.03+opt.branches*0.012), STEP=0.017;
+  let trail=[], tips=[], mode='grow', modeT=0, last=null, stepAcc=0, F=1, phase=Math.random()*6.283;
+  function reset(){ trail=[]; tips=[]; mode='grow'; modeT=0; stepAcc=0;
+    for(let k=0;k<opt.mains;k++){ const a=BASE + ((opt.mains>1?k/(opt.mains-1):0.5)-0.5)*opt.spread + (Math.random()*2-1)*0.12;
+      tips.push({x:OX,y:OY,aim:a,dist:0,max:opt.len*DIAG*0.52*(0.8+Math.random()*0.4),gen:0}); } }
+  const inb=(x,y)=> x>=MARGIN&&y>=MARGIN&&x<GW-MARGIN&&y<GH-MARGIN;
+  function step(){
+    const nt=[];
+    for(const tp of tips){
+      tp.aim += (Math.random()*2-1)*0.12;                                  // slow wander of heading
+      const ang=tp.aim + (Math.random()*2-1)*JAG, SL=6+Math.random()*7;    // jagged step
+      const nx=tp.x+Math.cos(ang)*SL, ny=tp.y+Math.sin(ang)*SL;
+      trail.push([tp.x,tp.y,nx,ny,tp.gen]);                                // lay down a new segment
+      tp.x=nx; tp.y=ny; tp.dist+=SL;
+      if(!inb(nx,ny) || tp.dist>=tp.max || (tp.gen>0 && Math.random()<0.045) || (tp.gen===0 && Math.random()<0.006)) continue;   // tip dies
+      if(tp.gen<2 && tips.length+nt.length<50 && Math.random()<PB)          // sprout a branch
+        nt.push({x:nx,y:ny,aim:ang+(Math.random()<0.5?-1:1)*(0.4+Math.random()*0.95),dist:0,max:tp.max*(0.25+Math.random()*0.32),gen:tp.gen+1});
+      nt.push(tp);
+    }
+    tips=nt; if(trail.length>1700) trail.splice(0,trail.length-1700);
+  }
+  function stampSeg(a){ const x0=a[0],y0=a[1],x1=a[2],y1=a[3],gen=a[4], L=Math.hypot(x1-x0,y1-y0),S=Math.max(1,Math.ceil(L));
+    const cw=gen===0?(opt.thick>=2?1.8:1.3):gen===1?1.0:0.7, gr=gen===0?3.4:2.0, inn=gen===0?1.0:gen===1?0.7:0.5;
+    for(let s=0;s<=S;s++){ const k=s/S,x=x0+(x1-x0)*k,y=y0+(y1-y0)*k;
+      glow(x,y,gr,GLOW,0.5*inn*F); glow(x,y,cw,CORE,0.7*inn*F); add(x,y,WHITE[0]*0.8*inn*F,WHITE[1]*0.8*inn*F,WHITE[2]*0.8*inn*F); } }
+  return { out, advance(now){
+    if(last===null){ last=now; reset(); }
+    const dt=Math.min(0.05,(now-last)/1000); last=now; modeT+=dt; const t=now*0.001+phase;
+    if(mode==='grow'){ stepAcc+=dt; while(stepAcc>=STEP){ step(); stepAcc-=STEP; } if(tips.length===0||modeT>1.4){ mode='hold'; modeT=0; } F=1; }
+    else if(mode==='hold'){ F=0.9+0.1*Math.sin(t*34); if(modeT>0.35){ mode='fade'; modeT=0; } }
+    else if(mode==='fade'){ F=Math.max(0,1-modeT/0.45); if(modeT>0.45){ mode='pause'; modeT=0; } }
+    else { F=0; if(modeT>0.35) reset(); }
+    acc.fill(0);
+    glow(OX,OY,13,GLOW,0.4*F); glow(OX,OY,6,CORE,0.6*F); glow(OX,OY,2.6,WHITE,0.9*F*(0.7+0.3*Math.sin(t*30)));
+    for(const a of trail) stampSeg(a);
+    if(mode==='grow') for(const tp of tips){ glow(tp.x,tp.y,3.4,CORE,0.95); add(tp.x,tp.y,1.3,1.3,1.3); }   // bright advancing leaders
+    for(let i=0;i<N;i++){ let r=acc[i*3],g=acc[i*3+1],b=acc[i*3+2];
+      r=1-Math.exp(-r*0.82); g=1-Math.exp(-g*1.6); b=1-Math.exp(-b*0.85);
+      const al=Math.min(1,Math.max(r,g,b)*2.0);
+      out[i*4]=r*255; out[i*4+1]=g*255; out[i*4+2]=b*255; out[i*4+3]=al*255; }
+    return out;
+  } };
+}
+
+if(typeof document!=='undefined'){
+  const strikes=OPTS.map(o=>{
+    const cell=document.createElement('div'); cell.className='cell';
+    const cvs=document.createElement('canvas'); cvs.width=GW; cvs.height=GH; cell.appendChild(cvs);
+    const lab=document.createElement('div'); lab.className='lab'; lab.innerHTML=o.id+' · <b>'+o.name+'</b>'; cell.appendChild(lab);
+    document.getElementById('row').appendChild(cell);
+    const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+    return {s:makeStrike(o), ctx};
+  });
+  function frame(ts){ for(const o of strikes){ const buf=o.s.advance(ts); o.ctx.putImageData(new ImageData(buf,GW,GH),0,0); } requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

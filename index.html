@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pixel-art-meta — demos</title>
+<style>
+  :root{--ink:#cdd6e4;--dim:#8a93a8;--cyan:#5fe9f2}
+  html,body{margin:0;background:#0d0b16;color:var(--ink);font:15px/1.6 ui-monospace,Menlo,Consolas,monospace}
+  header{padding:34px 20px 6px;text-align:center}
+  h1{margin:0;font-size:22px;color:#fff;letter-spacing:.5px}
+  header p{margin:6px 0 0;color:var(--dim)}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 16px 70px}
+  h2{font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--cyan);margin:34px 0 12px;border-bottom:1px solid #2a2440;padding-bottom:6px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+  a.card{display:block;text-decoration:none;color:inherit;background:#171327;border:1px solid #2a2440;border-radius:12px;overflow:hidden;transition:border-color .15s,transform .15s}
+  a.card:hover{border-color:var(--cyan);transform:translateY(-2px)}
+  .thumb{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:#0a0813;image-rendering:pixelated}
+  .thumb.tall{object-fit:contain}
+  .meta{padding:10px 12px}
+  .meta b{color:#fff}
+  .meta span{display:block;color:var(--dim);font-size:12px;margin-top:2px}
+  .dl{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+  .dl a{color:#0a0813;background:linear-gradient(180deg,#7ff0f8,#1f9fb0);padding:6px 12px;border-radius:8px;text-decoration:none;font-weight:700;font-size:12px}
+  footer{text-align:center;color:#5a6378;font-size:12px;padding:20px}
+  code{color:#9fe3ff}
+</style>
+</head>
+<body>
+  <header>
+    <h1>pixel-art-meta</h1>
+    <p>procedurally generated retro pixel-art demos · HTML5 Canvas</p>
+  </header>
+
+  <div class="wrap">
+
+    <h2>⚡ Lightning Strikes — 4 procedural options</h2>
+    <p style="color:var(--dim);margin-top:0">Every strike is a freshly generated shape (midpoint displacement), 1px style, <code>#0099DB</code> / <code>#2CE8F5</code>, transparent background — rotate &amp; place them in your comp.</p>
+    <div class="grid">
+      <a class="card" href="lightning-strikes.html">
+        <img class="thumb" src="lightning-strikes-preview.png" alt="four blue lightning options" />
+        <div class="meta"><b>Blue — live gallery →</b><span>all 4, regenerating each strike</span></div>
+      </a>
+      <a class="card" href="lightning-green.html">
+        <img class="thumb" src="lightning-green-preview.png" alt="four green lightning options" />
+        <div class="meta"><b>Green — live gallery →</b><span>same recipe, electrifying green</span></div>
+      </a>
+      <a class="card" href="lightning-arcane.html">
+        <img class="thumb" src="lightning-arcane-preview.png" alt="white purple circular lightning" />
+        <div class="meta"><b>Arcane Whip — white/purple →</b><span>coiling electric-fire whip</span></div>
+      </a>
+      <a class="card" href="lightning-green-fan.html">
+        <img class="thumb" src="lightning-green-fan-preview.png" alt="green diagonal fan lightning" />
+        <div class="meta"><b>Green Fan — diagonal →</b><span>bolt fanning from a top-left burst</span></div>
+      </a>
+      <a class="card" href="lightning-green-jag.html">
+        <img class="thumb" src="lightning-green-jag-preview.png" alt="green tight jagged lightning strike" />
+        <div class="meta"><b>Green Jagged — tight strike →</b><span>bunched, erratic, snaps in</span></div>
+      </a>
+      <a class="card" href="lightning-green-grow.html">
+        <img class="thumb" src="lightning-green-grow-preview.png" alt="green growing jagged lightning" />
+        <div class="meta"><b>Green Growing — jagged →</b><span>starts from nothing, draws out</span></div>
+      </a>
+    </div>
+    <div class="dl">
+      <a href="lightning-A-bolt.gif" download>blue A · bolt</a>
+      <a href="lightning-B-forked.gif" download>blue B · forked</a>
+      <a href="lightning-C-heavy.gif" download>blue C · heavy</a>
+      <a href="lightning-D-wild.gif" download>blue D · wild</a>
+    </div>
+    <div class="dl">
+      <a href="lightning-green-A-bolt-24fps.gif" download>green A · bolt</a>
+      <a href="lightning-green-B-forked-24fps.gif" download>green B · forked</a>
+      <a href="lightning-green-C-heavy-24fps.gif" download>green C · heavy</a>
+      <a href="lightning-green-D-wild-24fps.gif" download>green D · wild</a>
+    </div>
+    <p style="color:var(--dim);margin:10px 0 4px">Arcane (white/purple, circular — transparent):</p>
+    <div class="dl">
+      <a href="lightning-arcane-A-coil-24fps.gif" download>arcane · coil</a>
+      <a href="lightning-arcane-B-lash-24fps.gif" download>arcane · lash</a>
+      <a href="lightning-arcane-C-serpent-24fps.gif" download>arcane · serpent</a>
+      <a href="lightning-arcane-D-storm-24fps.gif" download>arcane · storm</a>
+    </div>
+    <p style="color:var(--dim);margin:10px 0 4px">Green Fan (diagonal, glowing — transparent / best on black w/ Screen):</p>
+    <div class="dl">
+      <a href="lightning-green-fan-A-fork-24fps.gif" download>fan · fork</a>
+      <a href="lightning-green-fan-B-fan-24fps.gif" download>fan · fan</a>
+      <a href="lightning-green-fan-C-bolt-24fps.gif" download>fan · bolt</a>
+      <a href="lightning-green-fan-D-storm-24fps.gif" download>fan · storm</a>
+    </div>
+    <p style="color:var(--dim);margin:10px 0 4px">Green Jagged (tight, strikes — transparent / on black w/ Screen):</p>
+    <div class="dl">
+      <a href="lightning-green-jag-A-tight-24fps.gif" download>jag · tight</a>
+      <a href="lightning-green-jag-B-bundle-24fps.gif" download>jag · bundle</a>
+      <a href="lightning-green-jag-C-spear-24fps.gif" download>jag · spear</a>
+      <a href="lightning-green-jag-D-frenzy-24fps.gif" download>jag · frenzy</a>
+    </div>
+    <p style="color:var(--dim);margin:10px 0 4px">Green Growing (jagged, draws out from nothing — transparent):</p>
+    <div class="dl">
+      <a href="lightning-green-grow-A-tight-24fps.gif" download>grow · tight</a>
+      <a href="lightning-green-grow-B-bundle-24fps.gif" download>grow · bundle</a>
+      <a href="lightning-green-grow-C-spear-24fps.gif" download>grow · spear</a>
+      <a href="lightning-green-grow-D-frenzy-24fps.gif" download>grow · frenzy</a>
+    </div>
+
+    <h2>More demos</h2>
+    <div class="grid">
+      <a class="card" href="chrono-core.html">
+        <img class="thumb" src="chrono-core-preview.png" alt="the chrono-core faceted crystal reactor" />
+        <div class="meta"><b>The Chrono-Core</b><span>caged amethyst crystal, Y-axis spin</span></div>
+      </a>
+      <a class="card" href="electric-layers.html">
+        <img class="thumb" src="electric-layers-preview.png" alt="electric layers" />
+        <div class="meta"><b>Electric Layers</b><span>6 cinematic green FX to composite</span></div>
+      </a>
+      <a class="card" href="electric-crawl.html">
+        <img class="thumb tall" src="electric-crawl-preview.png" alt="electric crawl" />
+        <div class="meta"><b>Electric Crawl</b><span>body crawling with green electricity</span></div>
+      </a>
+      <a class="card" href="fireworks.html">
+        <img class="thumb" src="fireworks-preview.png" alt="fireworks" />
+        <div class="meta"><b>Fireworks</b><span>colorful firework show</span></div>
+      </a>
+      <a class="card" href="arcane-burst.html">
+        <img class="thumb" src="arcane-burst-preview.png" alt="arcane electric burst" />
+        <div class="meta"><b>Arcane Electric Burst</b><span>magical electric explosion</span></div>
+      </a>
+      <a class="card" href="rising-rubble.html">
+        <img class="thumb tall" src="rising-rubble-preview.png" alt="rising rubble" />
+        <div class="meta"><b>Rising Rubble</b><span>floating rocks + dust lifting up</span></div>
+      </a>
+      <a class="card" href="power-up.html">
+        <img class="thumb" src="power-up-preview.png" alt="power up" />
+        <div class="meta"><b>Power-Up</b><span>animated electricity aura</span></div>
+      </a>
+      <a class="card" href="cosmic-summoning.html">
+        <img class="thumb" src="cosmic-summoning-preview.png" alt="cosmic summoning" />
+        <div class="meta"><b>Cosmic Summoning</b><span>animated cosmic scene</span></div>
+      </a>
+      <a class="card" href="clouds.html">
+        <img class="thumb" src="clouds-preview.png" alt="drifting pixel clouds" />
+        <div class="meta"><b>Drifting Clouds</b><span>16-bit cloud band, gently moving</span></div>
+      </a>
+      <a class="card" href="hover-bike.html">
+        <img class="thumb tall" src="hover-bike-preview.png" alt="hover bike" />
+        <div class="meta"><b>Hover-Bike “Kestrel”</b><span>kitbashed sprite</span></div>
+      </a>
+    </div>
+
+    <h2>Downloads — 24 fps transparent GIFs</h2>
+    <div class="dl">
+      <a href="lightning-A-bolt-24fps.gif" download>lightning A · bolt</a>
+      <a href="lightning-B-forked-24fps.gif" download>lightning B · forked</a>
+      <a href="lightning-C-heavy-24fps.gif" download>lightning C · heavy</a>
+      <a href="lightning-D-wild-24fps.gif" download>lightning D · wild</a>
+      <a href="arcane-burst-24fps.gif" download>arcane burst</a>
+      <a href="rising-rubble-24fps.gif" download>rising rubble</a>
+      <a href="fireworks-24fps.gif" download>fireworks</a>
+      <a href="electric-crawl-24fps.gif" download>electric crawl</a>
+      <a href="clouds-24fps.gif" download>clouds</a>
+      <a href="chrono-core-24fps.gif" download>chrono-core (spin)</a>
+    </div>
+    <p style="color:var(--dim);margin:10px 0 4px">Electric Layers (green, on black — composite with <b style="color:#9fffb0">Screen</b> or <b style="color:#9fffb0">Add</b>):</p>
+    <div class="dl">
+      <a href="electric-tendril-24fps.gif" download>tendril</a>
+      <a href="electric-sweep-24fps.gif" download>sweep</a>
+      <a href="electric-tesla-24fps.gif" download>tesla</a>
+      <a href="electric-orbit-24fps.gif" download>orbit</a>
+      <a href="electric-twin-24fps.gif" download>twin</a>
+      <a href="electric-cascade-24fps.gif" download>cascade</a>
+    </div>
+
+  </div>
+  <footer>github.com/zitro3d/pixel-art-meta</footer>
+</body>
+</html>

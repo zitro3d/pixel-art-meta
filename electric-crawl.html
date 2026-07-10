@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Electric Crawl | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;background:#04050c;display:flex;align-items:center;justify-content:center}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:94vh; width:auto; }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+<script>
+/* ELECTRIC CRAWL — a body overcharged with violent electricity. Arcs are
+   regenerated every frame: some HUG the silhouette outline (crawling skin
+   lightning), some JUMP across the body between limbs, and some violently
+   LASH outward. Bright white/cyan cores, electric-blue glow, violet menace,
+   aggressive flicker + random full-body discharge flashes. Additive -> tonemap. */
+const W=132, H=158, N=W*H, CX=66, CBODY=78;
+const acc=new Float32Array(N*3);
+const sil=new Uint8Array(N);
+let edges=[], RNG=Math.random;
+
+/* electrifying GREEN palette (names kept generic): CYAN=electric green,
+   BLUE=deep green glow, VIOLET=acid-lime accent, HOT=green-white core */
+const WHITE=[1,1,1], HOT=[.85,1,.90], CYAN=[.34,1,.46], BLUE=[.10,.62,.24], VIOLET=[.70,1,.22];
+const ANCH=[[66,18],[66,58],[50,50],[82,50],[44,100],[88,100],[58,98],[74,98],[56,154],[76,154],[40,80],[92,80]];
+
+function add(x,y,r,g,b){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H)return; const i=(y*W+x)*3; acc[i]+=r;acc[i+1]+=g;acc[i+2]+=b; }
+function glow(cx,cy,rad,c,inten){ const x0=Math.max(0,(cx-rad)|0),x1=Math.min(W-1,(cx+rad)|0),y0=Math.max(0,(cy-rad)|0),y1=Math.min(H-1,(cy+rad)|0);
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){ const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy); if(d>rad)continue; let f=1-d/rad; f*=f; add(x,y,c[0]*f*inten,c[1]*f*inten,c[2]*f*inten); } }
+
+function arc(x0,y0,x1,y1,disp,col,inten,depth){
+  depth=depth===undefined?1:depth;
+  let pts=[[x0,y0],[x1,y1]];
+  for(let it=0;it<5;it++){ const np=[];
+    for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1]; np.push(a);
+      const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,nx=-(b[1]-a[1]),ny=(b[0]-a[0]),nl=Math.hypot(nx,ny)||1,o=(RNG()*2-1)*disp;
+      np.push([mx+nx/nl*o,my+ny/nl*o]); }
+    np.push(pts[pts.length-1]); pts=np; disp*=0.55; }
+  const forks=[];
+  for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]),S=Math.ceil(L);
+    for(let s=0;s<=S;s++){ const k=s/S,x=a[0]+(b[0]-a[0])*k,y=a[1]+(b[1]-a[1])*k;
+      add(x,y,col[0]*1.6*inten,col[1]*2.0*inten,col[2]*1.5*inten);   // green-dominant body
+      add(x,y,HOT[0]*0.5*inten,HOT[1]*0.72*inten,HOT[2]*0.5*inten);  // small green-white core
+      if(depth>0&&RNG()<0.06) forks.push([x,y]); } }
+  for(const f of forks) arc(f[0],f[1], f[0]+(RNG()*14-7), f[1]+(RNG()*14-7), 2.5, col, inten*0.6, depth-1);
+}
+
+/* silhouette */
+function disc(cx,cy,r){ for(let y=-r;y<=r;y++)for(let x=-r;x<=r;x++) if(x*x+y*y<=r*r){ const xx=cx+x|0,yy=cy+y|0; if(xx>=0&&yy>=0&&xx<W&&yy<H) sil[yy*W+xx]=1; } }
+function cap(x0,y0,x1,y1,r){ const L=Math.hypot(x1-x0,y1-y0),S=Math.ceil(L); for(let s=0;s<=S;s++){const k=s/S; disc(Math.round(x0+(x1-x0)*k),Math.round(y0+(y1-y0)*k),r);} }
+function buildSil(){
+  sil.fill(0);
+  disc(66,28,10);                                   // head
+  cap(66,42,66,96,14);                              // torso
+  disc(50,50,11); disc(82,50,11);                   // shoulders
+  cap(58,94,54,157,8); cap(74,94,78,157,8);         // legs apart
+  cap(50,52,38,78,7); cap(38,78,44,100,7); disc(44,100,8);   // left arm flexed, fist
+  cap(82,52,94,78,7); cap(94,78,88,100,7); disc(88,100,8);   // right arm flexed, fist
+  edges=[];
+  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){ const i=y*W+x; if(!sil[i])continue;
+    if(!sil[i-1]||!sil[i+1]||!sil[i-W]||!sil[i+W]) edges.push([x,y]); }
+}
+
+let sparks=[], flash=0, flashT=0;
+function frame(t,dt){
+  acc.fill(0);
+  const fl=0.6+0.4*RNG();                          // global aggressive flicker
+
+  // menacing aura around the body (pulsing violet/cyan)
+  glow(CX,CBODY, 58, VIOLET, 0.10+0.05*Math.sin(t*7));
+  glow(CX,CBODY, 40, BLUE, 0.10*fl);
+
+  // rim of electricity along the outline (flickering)
+  for(let i=0;i<edges.length;i+=2){ if(RNG()<0.5){ const e=edges[i]; glow(e[0],e[1],1.7, RNG()<0.8?CYAN:VIOLET, 0.5*fl); } }
+
+  // CRAWL: short arcs hugging the outline (skin lightning)
+  const CRAWL=30;
+  for(let k=0;k<CRAWL;k++){ const a=edges[(RNG()*edges.length)|0];
+    let b=null; for(let tr=0;tr<8;tr++){ const c=edges[(RNG()*edges.length)|0]; const d=Math.hypot(c[0]-a[0],c[1]-a[1]); if(d>5&&d<18){ b=c; break; } }
+    if(!b) continue; arc(a[0],a[1],b[0],b[1], 2.2, RNG()<0.75?CYAN:VIOLET, (0.6+0.5*RNG())*fl, 1); }
+
+  // JUMP: aggressive arcs across the body between anchor points
+  for(let k=0;k<6;k++){ const a=ANCH[(RNG()*ANCH.length)|0], b=ANCH[(RNG()*ANCH.length)|0];
+    if(a===b) continue; arc(a[0],a[1],b[0],b[1], 4.5, RNG()<0.6?CYAN:BLUE, 0.7*fl, 1); }
+
+  // LASH: violent discharge bolts shooting OFF the body
+  const lashN=1+(RNG()*3|0);
+  for(let k=0;k<lashN;k++){ const e=edges[(RNG()*edges.length)|0];
+    const ang=Math.atan2(e[1]-CBODY,e[0]-CX)+(RNG()*2-1)*0.5, len=12+RNG()*26;
+    arc(e[0],e[1], e[0]+Math.cos(ang)*len, e[1]+Math.sin(ang)*len, 5, RNG()<0.7?CYAN:VIOLET, (0.8+0.5*RNG())*fl, 2);
+    if(RNG()<0.5) for(let i=0;i<2;i++) sparks.push({x:e[0],y:e[1],vx:Math.cos(ang)*(1+RNG()*2),vy:Math.sin(ang)*(1+RNG()*2)-0.3,life:0,max:10+RNG()*14}); }
+
+  // random full-body discharge flash (violent strobe)
+  flashT-=dt; if(flashT<=0){ flash=1; flashT=0.25+RNG()*0.7; }
+  flash*=Math.pow(0.02,dt);
+  if(flash>0.02){ glow(CX,CBODY,52,[.55,1,.55],flash*0.75); for(let i=0;i<edges.length;i+=1){ const e=edges[i]; add(e[0],e[1],HOT[0]*flash*0.7,HOT[1]*flash,HOT[2]*flash*0.7); } }
+
+  // sparks
+  const nsp=[];
+  for(const s of sparks){ s.life++; s.x+=s.vx; s.y+=s.vy; s.vy+=0.05; const lf=1-s.life/s.max; if(lf<=0)continue;
+    const c=lf>0.6?HOT:lf>0.3?CYAN:BLUE; add(s.x,s.y,c[0]*lf,c[1]*lf,c[2]*lf); nsp.push(s); }
+  sparks=nsp.length>500?nsp.slice(nsp.length-500):nsp;
+
+  // ---- compose: dark body + tonemapped electricity ----
+  const img=OUT;
+  for(let i=0;i<N;i++){
+    let r=acc[i*3],g=acc[i*3+1],b=acc[i*3+2];
+    r=1-Math.exp(-r*0.85); g=1-Math.exp(-g*1.75); b=1-Math.exp(-b*0.85);  // bloom green, hold back R/B -> stays green not white
+    let br=5,bg=11,bb=8;                              // dark green-tinted bg
+    if(sil[i]){ br=8;bg=16;bb=12; }                  // dark body form
+    img[i*4]=Math.min(255,br+r*255); img[i*4+1]=Math.min(255,bg+g*255); img[i*4+2]=Math.min(255,bb+b*255); img[i*4+3]=255;
+  }
+  return img;
+}
+let OUT=new Uint8ClampedArray(N*4);
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('screen'); cvs.width=W; cvs.height=H;
+  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  buildSil();
+  let t0=0,last=0;
+  function tick(ts){ if(!t0){t0=ts;last=ts;} const t=(ts-t0)*0.001, dt=Math.min(0.05,(ts-last)*0.001); last=ts;
+    ctx.putImageData(new ImageData(frame(t,dt),W,H),0,0); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

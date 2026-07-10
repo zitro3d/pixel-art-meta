@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drifting Clouds | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;background:#000}
+  canvas{ display:block; image-rendering:pixelated; image-rendering:crisp-edges; width:100vw; height:56.25vw; max-height:100vh; max-width:177.78vh; }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+<script>
+/* Pixel-art 16-bit cloud band across the top (dark indigo), transparent
+   below — matching the reference comp proportions. Clouds are metaball puff
+   clusters + fbm texture, shaded with lit tops / dark undersides, and drift /
+   billow gently on a seamless loop. */
+const W=320, H=180, N=W*H, LOOP=9.0;
+const img=new Uint8ClampedArray(N*4);
+
+const BASE=[54,50,82], LIGHT=[80,76,116], DARK=[34,30,56], EDGE=[24,20,40];
+
+/* puff clusters laid out to match the comp: big left mass, sparse centre with
+   a few puffs, big right mass, plus scattered lower bits. [cx,cy,r,phase] */
+const PUFFS=[
+  // LEFT MASS — top billows
+  [6,10,20,0.2],[28,6,21,1.1],[50,8,22,2.0],[74,10,20,0.6],[96,12,20,1.7],[114,16,18,2.4],
+  // left body
+  [14,28,18,0.9],[38,26,20,1.4],[62,28,20,0.3],[86,28,20,2.1],[108,30,18,1.2],
+  // left scalloped underside (bumps)
+  [10,48,12,0.7],[30,52,13,1.9],[50,50,12,0.5],[70,54,12,2.6],[90,50,12,1.3],[108,48,12,0.8],[122,54,10,2.2],
+  // centre-left trailing dip
+  [132,56,10,1.6],[144,60,10,0.4],[154,54,9,2.3],
+  // centre small floating puffs + hanging wisp
+  [162,60,8,1.0],[178,56,8,2.5],[168,70,6,1.8],[150,66,6,0.9],
+  // RIGHT MASS — top billows
+  [196,14,18,0.4],[218,6,22,1.5],[242,8,22,2.3],[266,8,22,0.7],[290,10,22,1.9],[312,14,20,1.2],[322,22,18,0.5],
+  // right body
+  [204,30,18,2.0],[228,26,20,0.9],[252,28,20,1.7],[276,28,20,0.6],[300,28,20,2.4],[320,34,18,1.1],
+  // right scalloped underside
+  [198,50,12,1.8],[218,54,13,0.6],[240,52,12,2.1],[262,56,12,1.0],[284,52,12,0.4],[306,54,12,2.6],[322,50,10,1.4],
+  [192,46,10,0.7],
+  // scattered lower bits
+  [56,68,7,2.5],[126,66,6,1.1],[232,68,7,0.4],[300,70,6,1.9],[184,64,5,2.7],[38,60,6,1.4],[270,64,6,0.8],
+];
+
+/* value noise / fbm */
+function hash(x,y){ let n=(x|0)*374761393+(y|0)*668265263; n=(n^(n>>13))*1274126177; return ((n^(n>>16))>>>0)/4294967296; }
+function vn(x,y){ const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,tl=hash(xi,yi),tr=hash(xi+1,yi),bl=hash(xi,yi+1),br=hash(xi+1,yi+1),u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf); return tl*(1-u)*(1-v)+tr*u*(1-v)+bl*(1-u)*v+br*u*v; }
+function fbm(x,y){ let s=0,a=.5,f=1; for(let i=0;i<4;i++){s+=a*vn(x*f,y*f);f*=2;a*=.5;} return s; }
+
+const cloud=new Uint8Array(N);
+function density(x,y,t){
+  let d=0;
+  const sway=3.2*Math.sin(t*2*Math.PI/LOOP);                 // gentle global drift
+  for(const p of PUFFS){
+    const bx=p[0]+sway + 2.4*Math.sin(t*2*Math.PI/LOOP + p[3]);   // each puff billows
+    const by=p[1] + 1.3*Math.sin(t*2*Math.PI/LOOP*2 + p[3]*1.7);
+    const dx=(x-bx)/p[2], dy=(y-by)/p[2];
+    d += Math.exp(-(dx*dx+dy*dy)*1.45);
+  }
+  // texture perturbs the puffy edge (scrolls a little -> billowing)
+  const nx = x*0.05 + 6*Math.sin(t*2*Math.PI/LOOP);
+  d += (fbm(nx, y*0.06 + 3*Math.sin(t*2*Math.PI/LOOP+1.0)) - 0.5)*0.6;
+  return d;
+}
+
+function frame(t){
+  cloud.fill(0);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){ if(density(x,y,t)>0.5) cloud[y*W+x]=1; }
+  const C=(x,y)=> (x<0||y<0||x>=W||y>=H)?0:cloud[y*W+x];
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){ const i=(y*W+x)*4;
+    if(!cloud[y*W+x]){ img[i+3]=0; continue; }
+    let col=BASE;
+    const dn1=C(x,y+1),dn2=C(x,y+2),dn3=C(x,y+3),up1=C(x,y-1),up2=C(x,y-2);
+    if(!dn2||!dn3) col=DARK;                                     // underside shadow band
+    else if(!up1||!up2) col=LIGHT;                               // lit top rim
+    else { const n=fbm(x*0.13+3, y*0.13); col = n>0.66?LIGHT : n<0.34?DARK : BASE; }  // billow texture
+    if(!dn1) col=EDGE;                                           // hard bottom outline
+    if((!C(x-1,y)&&!C(x-2,y))||(!C(x+1,y)&&!C(x+2,y))) col=EDGE; // side outline
+    img[i]=col[0]; img[i+1]=col[1]; img[i+2]=col[2]; img[i+3]=255;
+  }
+  return img;
+}
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('screen'); cvs.width=W; cvs.height=H;
+  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  let t0=0;
+  function tick(ts){ if(!t0)t0=ts; const t=((ts-t0)*0.001)%LOOP; ctx.putImageData(new ImageData(frame(t),W,H),0,0); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>
