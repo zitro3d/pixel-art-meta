@@ -9,7 +9,7 @@
     font:12px ui-monospace,Menlo,Consolas,monospace;color:#9aa;}
   .stage{display:flex;flex-direction:column;align-items:center;gap:10px}
   canvas{ image-rendering:pixelated; image-rendering:crisp-edges;
-    width:min(82vh,82vw); height:min(82vh,82vw);
+    height:88vh; width:auto; max-width:92vw;
     background:
       linear-gradient(45deg,#15151f 25%,transparent 25%,transparent 75%,#15151f 75%),
       linear-gradient(45deg,#15151f 25%,transparent 25%,transparent 75%,#15151f 75%),
@@ -21,19 +21,20 @@
 </head>
 <body>
   <div class="stage">
-    <canvas id="c" width="128" height="128"></canvas>
-    <div class="cap">rainbow music notes · floating loop · transparent</div>
+    <canvas id="c" width="112" height="192"></canvas>
+    <div class="cap">rainbow music notes · burst on, bubble off · transparent</div>
   </div>
 
 <script>
-/* Pixel-art music notes drifting upward on a gentle sway. Each note fades in,
-   rises, and fades out while its colour sweeps the rainbow. Fully periodic
-   (seamless loop) and transparent for compositing. 128x128 virtual canvas,
-   integer-scaled, no smoothing. */
-const W=128, H=128;
+/* Pixel-art music notes that BURST on (expanding ring + sparkle, pop-in scale),
+   glide upward on a random two-harmonic drift while their colour sweeps the
+   rainbow, then POP OFF like a bubble (note thins to a bubble ring, then bursts
+   into drifting droplets). Fully periodic (seamless loop), transparent for
+   compositing. Tall 112x192 virtual canvas, integer-scaled, no smoothing. */
+const W=112, H=192;
 const buf=new Uint8ClampedArray(W*H*4);
 function clearT(){ buf.fill(0); }
-// alpha-over blend into the transparent buffer (premultiplied-free)
+// alpha-over blend into the transparent buffer
 function putA(x,y,r,g,b,a){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H||a<=0)return;
   const i=(y*W+x)*4, da=buf[i+3]/255, oa=a+da*(1-a);
   if(oa<=0)return; const k=a/oa;
@@ -46,10 +47,10 @@ function hsv(h,s,v){ h=(h%1+1)%1; const i=Math.floor(h*6), f=h*6-i,
   switch(i%6){ case 0:r=v;g=t;b=p;break; case 1:r=q;g=v;b=p;break; case 2:r=p;g=v;b=t;break;
     case 3:r=p;g=q;b=v;break; case 4:r=t;g=p;b=v;break; default:r=v;g=p;b=q; }
   return [r*255,g*255,b*255]; }
+function mulberry(a){ return function(){ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
 
 /* ---- note glyph construction (pixel masks) ----------------------------- */
-// add one note unit (head + stem[, flag]) to a Set of "x,y" body pixels.
-// returns the stem-top [x,y] so a beam can connect two of them.
 function addUnit(body, hx, hy, flag){
   const rx=3, ry=2;
   for(let yy=-ry;yy<=ry;yy++) for(let xx=-rx;xx<=rx;xx++){
@@ -66,73 +67,107 @@ function noteBody(type, cx, cy){
   const body=new Set();
   if(type==='eighth'){ addUnit(body, cx-1, cy, true); }
   else if(type==='quarter'){ addUnit(body, cx-1, cy, false); }
-  else { // beamed pair
-    const a=addUnit(body, cx-5, cy+1, false), b=addUnit(body, cx+4, cy-1, false);
+  else { const a=addUnit(body, cx-5, cy+1, false), b=addUnit(body, cx+4, cy-1, false);
     const x0=Math.min(a[0],b[0]), x1=Math.max(a[0],b[0]);
     for(let x=x0;x<=x1;x++){ const yy=a[1]+(b[1]-a[1])*(x-a[0])/((b[0]-a[0])||1);
-      body.add(x+','+Math.round(yy)); body.add(x+','+Math.round(yy+1)); body.add(x+','+Math.round(yy+2)); } // beam
-  }
+      body.add(x+','+Math.round(yy)); body.add(x+','+Math.round(yy+1)); body.add(x+','+Math.round(yy+2)); } }
   return body;
 }
-// heads (for highlight placement): approx upper-left of each head
 function noteHeads(type,cx,cy){ return type==='beamed'? [[cx-6,cy],[cx+3,cy-2]] : [[cx-2,cy-1]]; }
 
-function drawNote(type, cx, cy, hue, alpha){
-  if(alpha<=0) return;
-  const body=noteBody(type, cx|0, cy|0);
-  const [br,bg,bb]=hsv(hue,0.88,1.0);                 // vivid body
-  const [or_,og,ob]=hsv(hue,0.95,0.42);               // darker outline (same hue family)
-  // outline: body-adjacent empty pixels
-  const out=new Set();
-  for(const key of body){ const [x,y]=key.split(',').map(Number);
-    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const k=(x+dx)+','+(y+dy);
-      if(!body.has(k)) out.add(k); } }
-  for(const key of out){ const [x,y]=key.split(',').map(Number); putA(x,y,or_,og,ob,alpha*0.9); }
-  for(const key of body){ const [x,y]=key.split(',').map(Number); putA(x,y,br,bg,bb,alpha); }
-  // pale specular on the head(s)
-  for(const [hx,hy] of noteHeads(type,cx|0,cy|0)){
-    const [pr,pg,pb]=hsv(hue,0.25,1.0);
+// scale a set of "x,y" pixels about a centre
+function scaleSet(set,cx,cy,s){ const out=new Set();
+  for(const key of set){ const c=key.indexOf(','), x=+key.slice(0,c), y=+key.slice(c+1);
+    out.add(Math.round(cx+(x-cx)*s)+','+Math.round(cy+(y-cy)*s)); } return out; }
+function outlineOf(body){ const out=new Set();
+  for(const key of body){ const c=key.indexOf(','), x=+key.slice(0,c), y=+key.slice(c+1);
+    for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const k=(x+dx)+','+(y+dy); if(!body.has(k)) out.add(k); } }
+  return out; }
+
+// draw a note; hollow=true renders only the bubble ring (outline) + sheen
+function drawNote(type, cx, cy, hue, alpha, scale, hollow){
+  if(alpha<=0) return; cx|=0; cy|=0; scale=scale||1;
+  let body=noteBody(type, cx, cy);
+  if(scale!==1) body=scaleSet(body,cx,cy,scale);
+  const [br,bg,bb]=hsv(hue,0.88,1.0), [or_,og,ob]=hsv(hue,0.95,0.42);
+  const out=outlineOf(body);
+  if(hollow){ // bubble: just the rim, in bright hue, with a pale sheen arc
+    for(const key of out){ const c=key.indexOf(','); putA(+key.slice(0,c),+key.slice(c+1),br,bg,bb,alpha); }
+    const [pr,pg,pb]=hsv(hue,0.2,1.0);
+    for(const [hx,hy] of noteHeads(type,cx,cy)){ putA(hx-1,hy-1,pr,pg,pb,alpha*0.9); putA(hx,hy-2,pr,pg,pb,alpha*0.6); }
+    return;
+  }
+  for(const key of out){ const c=key.indexOf(','); putA(+key.slice(0,c),+key.slice(c+1),or_,og,ob,alpha*0.9); }
+  for(const key of body){ const c=key.indexOf(','); putA(+key.slice(0,c),+key.slice(c+1),br,bg,bb,alpha); }
+  for(const [hx,hy] of noteHeads(type,cx,cy)){ const [pr,pg,pb]=hsv(hue,0.25,1.0);
     putA(hx,hy,pr,pg,pb,alpha); putA(hx+1,hy,pr,pg,pb,alpha*0.7); }
 }
 
-/* ---- the floating field (seamless: every term periodic in p in [0,1)) --- */
-const TYPES=['eighth','quarter','beamed','eighth','eighth','quarter'];
-const NOTES=[]; (function(){ const R=mulberry(1337);
-  const n=9;
-  for(let i=0;i<n;i++) NOTES.push({
-    x: 14 + R()*100,
-    type: TYPES[(R()*TYPES.length)|0],
-    phase: i/n + R()*0.03,
-    swayAmp: 5 + R()*9,
-    swayK: 1 + (R()*2|0),            // integer sway cycles per life -> loops
-    swayPh: R()*6.283,
-    hueOff: R(),
-    size: 0.9 + R()*0.3,
-  });
-})();
-function mulberry(a){ return function(){ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
-  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+/* ---- pop effect helpers ------------------------------------------------ */
+function drawRing(cx,cy,r,hue,alpha,sat,val){ if(r<0.5||alpha<=0)return;
+  const [R,G,B]=hsv(hue,sat,val), n=Math.max(8,(2*Math.PI*r)|0);
+  for(let i=0;i<n;i++){ const a=i/n*2*Math.PI; putA(cx+Math.cos(a)*r, cy+Math.sin(a)*r, R,G,B, alpha); } }
+function sparkle(cx,cy,s,hue,alpha){ if(s<0.5||alpha<=0)return;
+  const [r,g,b]=hsv(hue,0.3,1.0); const S=Math.round(s);
+  for(let k=-S;k<=S;k++){ const f=1-Math.abs(k)/(S+1); putA(cx+k,cy,r,g,b,alpha*f); putA(cx,cy+k,r,g,b,alpha*f); }
+  putA(cx,cy,255,255,255,alpha); }
 
-const CYCLES=1;                      // full rainbow turns per loop
+/* ---- the drifting field (seamless: every term periodic in p) ----------- */
+const TYPES=['eighth','quarter','beamed','eighth','eighth','quarter'];
+const NOTES=[]; (function(){ const R=mulberry(9281); const n=12;
+  for(let i=0;i<n;i++){ const drops=[]; const nd=6+(R()*3|0);
+    for(let d=0;d<nd;d++) drops.push({a:d/nd*2*Math.PI + R()*0.6, sp:0.8+R()*0.7, sz:1+(R()<0.4?1:0)});
+    NOTES.push({
+      x: 12 + R()*(W-24),
+      type: TYPES[(R()*TYPES.length)|0],
+      phase: i/n + R()*0.02,
+      swayAmp: 4 + R()*8, swayK: 1 + (R()*2|0), swayPh: R()*6.283,
+      sway2: 2 + R()*5,  swayK2: 2 + (R()*2|0), swayPh2: R()*6.283,
+      hueOff: R(), drops,
+    });
+  }
+})();
+
+const CYCLES=1, B=0.13, P=0.20;                       // burst-on / pop-off fractions of life
 function render(p){
   clearT();
-  // draw newest (lowest) last so rising notes overlap naturally
-  const order=NOTES.map((nt,i)=>({nt,life:((p+nt.phase)%1+1)%1})).sort((a,b)=>b.life-a.life);
+  const order=NOTES.map((nt)=>({nt,life:((p+nt.phase)%1+1)%1})).sort((a,b)=>b.life-a.life);
   for(const {nt,life} of order){
-    const y = (H+10) - life*(H+22);                      // below bottom -> above top
-    const x = nt.x + nt.swayAmp*Math.sin(life*2*Math.PI*nt.swayK + nt.swayPh);
-    let a;                                                // appear -> hold -> disappear
-    if(life<0.16) a=life/0.16; else if(life>0.82) a=(1-life)/0.18; else a=1;
-    a=Math.max(0,Math.min(1,a))*0.96;
-    const hue=( p*CYCLES + nt.hueOff + life*0.25 )%1;     // rainbow sweep (periodic)
-    drawNote(nt.type, x, y, hue, a);
+    const y = (H+12) - life*(H+30);                                       // rise across the tall canvas
+    const x = nt.x + nt.swayAmp*Math.sin(life*2*Math.PI*nt.swayK + nt.swayPh)
+                   + nt.sway2 *Math.sin(life*2*Math.PI*nt.swayK2+ nt.swayPh2);   // random two-harmonic drift
+    const hue=( p*CYCLES + nt.hueOff + life*0.25 )%1;
+
+    if(life < B){                                                         // ---- BURST ON ----
+      const pr=life/B, ease=1-(1-pr)*(1-pr);
+      const sc = pr<0.65 ? 0.25+ (ease/0.86)*0.95 : 1.12 - (pr-0.65)/0.35*0.12;   // grow w/ slight overshoot
+      drawRing(x,y, 1+pr*8, hue, (1-pr)*0.85, 0.5, 1.0);                 // expanding flash ring
+      sparkle(x,y, 4*(1-pr), hue, (1-pr)*0.9);
+      drawNote(nt.type, x, y, hue, Math.min(1,pr*1.5)*0.98, sc, false);
+    } else if(life > 1-P){                                               // ---- POP OFF (bubble) ----
+      const pr=(life-(1-P))/P;
+      if(pr<0.5){                                                        // thins into a rising bubble
+        const bs=1+pr*0.5;
+        drawNote(nt.type, x, y, hue, 1-pr*0.3, bs, true);                // hollow bubble ring + sheen
+        drawRing(x,y, 7+pr*5, hue, (0.3-pr*0.3), 0.5, 1.0);              // faint bubble skin
+      } else {                                                           // ... and bursts into droplets
+        const pp=(pr-0.5)/0.5;
+        drawRing(x,y, 6+pp*13, hue, (1-pp)*0.8, 0.6, 1.0);              // pop shockwave
+        if(pp<0.25) sparkle(x,y,5*(1-pp*4),hue,(1-pp*4)*0.8);
+        const [dr,dg,db]=hsv(hue,0.85,1.0);
+        for(const d of nt.drops){ const rr=pp*16*d.sp, dx=x+Math.cos(d.a)*rr, dy=y+Math.sin(d.a)*rr - pp*3;
+          const a=(1-pp)*0.95; putA(dx,dy,dr,dg,db,a); if(d.sz>1){ putA(dx+1,dy,dr,dg,db,a*0.7); putA(dx,dy+1,dr,dg,db,a*0.7); } }
+      }
+    } else {                                                            // ---- GLIDE ----
+      drawNote(nt.type, x, y, hue, 0.97, 1, false);
+    }
   }
   return buf;
 }
 
 if(typeof document!=='undefined'){
   const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
-  const LOOP=4.2; let t0=0;
+  const LOOP=5.0; let t0=0;
   function frame(ts){ if(!t0)t0=ts; const p=(((ts-t0)*0.001)%LOOP)/LOOP;
     ctx.putImageData(new ImageData(render(p),W,H),0,0); requestAnimationFrame(frame); }
   requestAnimationFrame(frame);
