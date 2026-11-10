@@ -9,12 +9,8 @@
     font:12px ui-monospace,Menlo,Consolas,monospace;color:#9aa;}
   .stage{display:flex;flex-direction:column;align-items:center;gap:10px}
   canvas{ image-rendering:pixelated; image-rendering:crisp-edges;
-    height:88vh; width:auto; max-width:92vw;
-    background:
-      linear-gradient(45deg,#15151f 25%,transparent 25%,transparent 75%,#15151f 75%),
-      linear-gradient(45deg,#15151f 25%,transparent 25%,transparent 75%,#15151f 75%),
-      #101019;
-    background-size:16px 16px; background-position:0 0,8px 8px;
+    height:90vh; width:auto; max-width:94vw;
+    background:#000;
     border-radius:4px; }
   .cap{letter-spacing:3px;font-size:11px;opacity:.7;text-transform:uppercase}
 </style>
@@ -31,7 +27,7 @@
    rainbow, then POP OFF like a bubble (note thins to a bubble ring, then bursts
    into drifting droplets). Fully periodic (seamless loop), transparent for
    compositing. Tall 112x192 virtual canvas, integer-scaled, no smoothing. */
-const W=112, H=192;
+const W=176, H=288;
 const buf=new Uint8ClampedArray(W*H*4);
 function clearT(){ buf.fill(0); }
 // alpha-over blend into the transparent buffer
@@ -105,7 +101,7 @@ function sparkle(cx,cy,s,hue,alpha){ if(s<0.5||alpha<=0)return;
    rises a short random distance at its own depth (size), then POPS like a
    balloon into confetti and vanishes. Seamless loop (periodic in p).        */
 const TYPES=['eighth','quarter','beamed','eighth','quarter'];
-const NOTES=[]; (function(){ const R=mulberry(4471); const n=17;
+const NOTES=[]; (function(){ const R=mulberry(4471); const n=24;
   for(let i=0;i<n;i++){ const nd=8+(R()*5|0), drops=[];
     for(let d=0;d<nd;d++) drops.push({a:d/nd*6.283+R()*0.8, sp:0.6+R()*0.9, sz:1+(R()<0.5?1:0), hue:R()*0.34-0.17});
     const scale=0.55 + R()*R()*0.9;                 // z-depth: biased small, a few big/near
