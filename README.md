@@ -1,1 +1,33 @@
 # pixel-art-meta
+
+Framework for programmatically generating **ultra-high-fidelity, dimensional pixel art** assets inside a React Artifact using an HTML5 Canvas — targeting the visual tier of late-90s arcade titles (Metal Slug / high-end pixel side-scrollers).
+
+This is a **style definition**, not a single asset. Every generated subject inherits the structural and stylistic rules codified in the style guide.
+
+## Core Rules
+
+1. **Component Layering & Depth** — assets are built from overlapping z-index layers (Background → Main Body → Foreground Armor/Details → Specular Highlights/Glows), never as flat single-layer silhouettes.
+2. **Hue-Shifted Specular Shading** — no grayscale overlays; shadows shift into deep indigos/plums/rust-browns, highlights into piercing creams/golds/neon cyans/laser reds.
+3. **Manual Anti-Aliasing & Contours** — curved shapes are smoothed with intermediate pixel steps to eradicate jagged stairs.
+4. **Rust, Rebar & Greebles** — surfaces carry engineered weathering: 1px rivets, dual-pixel vents, hairline scratches, exposed wiring.
+5. **Exhaust & Particle Effects** — propulsion/energy uses decaying geometric pixel steps collapsing into scattered trailing embers.
+
+See **[STYLE_GUIDE.md](./STYLE_GUIDE.md)** for the full technical specification.
+
+## Assets
+
+### Hover-Bike “Kestrel” — [`hover-bike.html`](./hover-bike.html)
+
+A kitbash of a 90s sportbike chassis and a radial aircraft engine. Self-contained React + HTML5 Canvas artifact: open the file in a browser to see the live render, including the animated hover-jet particle exhaust. Authored on a 160×84 logical grid, integer-scaled with `imageSmoothingEnabled = false`.
+
+![Hover-Bike Kestrel](./hover-bike-preview.png)
+
+Kitbashed parts: radial aero engine (turbine fan + spinner hub + cowl flaps), sportbike teardrop tank with hazard livery, moto saddle re-skinned as an empennage tailfin, twin downward hover nozzles, clip-on bars, and an exposed copper wiring loom.
+
+### Cosmic Summoning — [`cosmic-summoning.html`](./cosmic-summoning.html)
+
+A static 16-bit-style scene: a V-posed silhouette channelling cosmic energy. Self-contained HTML5 Canvas (no dependencies) authored at 480×270 and upscaled with `image-rendering: pixelated`. Rendering pipeline: additive HDR light buffer → Reinhard tonemap → Bayer 4×4 ordered dither → nearest-color quantize to a strict 15-colour retro palette.
+
+![Cosmic Summoning](./cosmic-summoning-preview.png)
+
+Elements: central black silhouette, golden crescent orb (left) and purple/orange spiral galaxy (right) each wired to a hand by a jagged energy beam, a hot golden backlight bloom and vertical lightning behind the figure, violet flares rushing up from the bottom corners, and floating pixel debris.

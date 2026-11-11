@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lightning Strike (Transparent) — Pixel Animation | pixel-art-meta</title>
+<style>
+  /* checkerboard page bg just to SHOW the canvas transparency */
+  html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;
+    background:#3a3f55;
+    background-image:
+      linear-gradient(45deg,#2c3046 25%,transparent 25%,transparent 75%,#2c3046 75%),
+      linear-gradient(45deg,#2c3046 25%,transparent 25%,transparent 75%,#2c3046 75%);
+    background-size:24px 24px; background-position:0 0,12px 12px;}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:86vh; width:auto; }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+<script>
+/* Single lightning strike on a TRANSPARENT background, for compositing.
+   Bolt shape traced from the CrockpotGames tutorial; transitions are all
+   drawn procedurally. Colours: bolt #0099DB, flash #2CE8F5, 1px thick.
+   Recipe (~12fps): build-up strobe -> flash -> translucent cyan flash
+   wash -> exaggerated-edge glow hold -> fragment fade-out -> pause. */
+const GW=23, GH=66;
+const MAIN=[[10, 2], [11, 2], [11, 3], [11, 4], [12, 4], [12, 5], [12, 6], [13, 6], [13, 7], [14, 7], [13, 8], [14, 8], [14, 9], [15, 9], [14, 10], [15, 10], [16, 10], [14, 11], [15, 11], [16, 11], [17, 11], [12, 12], [13, 12], [14, 12], [15, 12], [16, 12], [17, 12], [11, 13], [12, 13], [13, 13], [14, 13], [15, 13], [9, 14], [10, 14], [11, 14], [12, 14], [13, 14], [7, 15], [8, 15], [9, 15], [10, 15], [11, 15], [5, 16], [6, 16], [7, 16], [8, 16], [3, 17], [4, 17], [5, 17], [6, 17], [7, 17], [3, 18], [4, 18], [5, 18], [6, 18], [4, 19], [5, 19], [6, 19], [7, 19], [5, 20], [6, 20], [7, 20], [5, 21], [6, 21], [7, 21], [6, 22], [7, 22], [7, 23], [7, 24], [8, 24], [8, 25], [8, 26], [9, 26], [8, 27], [9, 27], [8, 28], [9, 28], [10, 28], [11, 28], [9, 29], [10, 29], [11, 29], [12, 29], [13, 29], [14, 29], [15, 29], [16, 29], [17, 29], [9, 30], [10, 30], [11, 30], [12, 30], [13, 30], [14, 30], [15, 30], [16, 30], [9, 31], [13, 31], [14, 31], [15, 31], [14, 32], [15, 32], [13, 33], [14, 33], [13, 34], [14, 34], [13, 35], [14, 35], [13, 36], [13, 37], [12, 38], [13, 38], [12, 39], [13, 39], [12, 40], [12, 41], [11, 42], [12, 42], [10, 43], [11, 43], [12, 43], [9, 44], [10, 44], [8, 45], [9, 45], [7, 46], [8, 46], [6, 47], [7, 47], [8, 47], [6, 48], [7, 48], [8, 48], [9, 48], [7, 49], [8, 49], [9, 49], [8, 50], [9, 50], [9, 51], [10, 51], [9, 52], [10, 52], [10, 53], [10, 54], [10, 55], [10, 56], [11, 57]], SPRAY=[[5, 58], [11, 58], [14, 58], [19, 58], [6, 59], [11, 59], [13, 59], [18, 59], [9, 60], [11, 60], [12, 61], [16, 61], [12, 62], [11, 63], [12, 63], [15, 63]];
+const BOLT=[0x00,0x99,0xDB], BRIGHT=[0x2C,0xE8,0xF5];
+
+const cvs=document.getElementById('screen'); cvs.width=GW; cvs.height=GH;
+const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+const buf=ctx.createImageData(GW,GH);
+
+const UNIT=80;
+const SEQ=[
+  {k:'rev',a:0.34,s:'bolt',h:2},{k:'empty',h:1},
+  {k:'rev',a:0.66,s:'bolt',h:2},{k:'empty',h:1},
+  {k:'rev',a:1.0, s:'bolt',h:2},{k:'empty',h:1},
+  {k:'rev',a:1.0, s:'bolt',h:1},
+  {k:'flash',h:1},
+  {k:'rev',a:1.0, s:'glow',h:2},
+  {k:'rev',a:1.0, s:'glow',h:2},
+  {k:'rev',a:1.0, s:'bolt',h:1},
+  {k:'fade',a:0.6,h:1},{k:'fade',a:0.3,h:1},{k:'fade',a:0.12,h:1},
+  {k:'empty',h:7},
+];
+
+function clear(){ buf.data.fill(0); }                       // fully transparent
+function set(x,y,col,a){ if(x<0||y<0||x>=GW||y>=GH)return; const i=(y*GW+x)*4,d=buf.data;
+  d[i]=col[0];d[i+1]=col[1];d[i+2]=col[2];d[i+3]=a===undefined?255:a; }
+function fillA(col,a){ const d=buf.data; for(let i=0;i<GW*GH;i++){ d[i*4]=col[0];d[i*4+1]=col[1];d[i*4+2]=col[2];d[i*4+3]=a; } }
+function drawPts(pts,col){ for(const p of pts) set(p[0],p[1],col); }
+function drawEdges(pts,col){ const s=new Set(pts.map(p=>p[0]+','+p[1]));
+  for(const [x,y] of pts){ for(const [dx,dy] of [[1,0],[-1,0]]){ const nx=x+dx,ny=y+dy; if(!s.has(nx+','+ny)) set(nx,ny,col); } } }
+
+function compose(step){
+  if(step.k==='flash'){ fillA(BRIGHT,150); return; }          // translucent flash wash
+  clear();
+  if(step.k==='empty') return;
+  if(step.k==='rev'){
+    let pts = step.a>=1 ? MAIN.concat(SPRAY) : MAIN.slice(0, Math.floor(MAIN.length*step.a));
+    if(step.s==='glow'){ drawEdges(pts,BOLT); drawPts(pts,BRIGHT); }
+    else drawPts(pts,BOLT);
+  } else if(step.k==='fade'){
+    drawPts(MAIN.concat(SPRAY).filter(()=>Math.random()<step.a), BOLT);
+  }
+}
+
+let idx=0, stepStart=0, composed=false;
+function loop(ts){
+  if(!stepStart) stepStart=ts;
+  const step=SEQ[idx];
+  if(!composed){ compose(step); ctx.putImageData(buf,0,0); composed=true; }
+  if(ts-stepStart>=step.h*UNIT){ idx=(idx+1)%SEQ.length; stepStart=ts; composed=false; }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

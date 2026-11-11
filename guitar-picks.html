@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Guitar Picks — 3D Tumble | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center;
+    font:12px ui-monospace,Menlo,Consolas,monospace;color:#9aa;}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:12px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges;
+    height:90vh; width:auto; max-width:94vw; background:#000; border-radius:4px; }
+  .cap{letter-spacing:3px;font-size:11px;opacity:.7;text-transform:uppercase}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <canvas id="c" width="192" height="240"></canvas>
+    <div class="cap">guitar picks · tumbling + 3D flip · transparent</div>
+  </div>
+
+<script>
+/* Pixel-art guitar picks (plectrums) that pop in from nothing, tumble upward
+   on a random drift, and continuously FLIP in 3D — the pick foreshortens to a
+   thin edge, then shows its other face (front bright / back dark) while also
+   spinning in-plane. Varied depth sizes, rainbow set, seamless loop, transparent.
+   192x240 virtual canvas, integer-scaled, no smoothing. The 3D flip is drawn by
+   inverse-mapping each screen pixel into pick space, so it stays crisp. */
+const W=192, H=240;
+const buf=new Uint8ClampedArray(W*H*4);
+function clearT(){ buf.fill(0); }
+function putA(x,y,r,g,b,a){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H||a<=0)return;
+  const i=(y*W+x)*4, da=buf[i+3]/255, oa=a+da*(1-a); if(oa<=0)return; const k=a/oa;
+  buf[i]=buf[i]*(1-k)+r*k; buf[i+1]=buf[i+1]*(1-k)+g*k; buf[i+2]=buf[i+2]*(1-k)+b*k; buf[i+3]=oa*255; }
+function hsv(h,s,v){ h=(h%1+1)%1; const i=Math.floor(h*6), f=h*6-i,
+  p=v*(1-s), q=v*(1-f*s), t=v*(1-(1-f)*s); let r,g,b;
+  switch(i%6){ case 0:r=v;g=t;b=p;break; case 1:r=q;g=v;b=p;break; case 2:r=p;g=v;b=t;break;
+    case 3:r=p;g=q;b=v;break; case 4:r=t;g=p;b=v;break; default:r=v;g=p;b=q; }
+  return [r*255,g*255,b*255]; }
+function mulberry(a){ return function(){ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+/* ---- pick silhouette : half-width (0..1) at vertical t (0 top -> 1 point) -- */
+function pickHalf(t){ const ts=0.30;
+  if(t<ts){ const k=(ts-t)/(ts*1.14); return Math.sqrt(Math.max(0,1-k*k)); }  // rounded top
+  return Math.pow(Math.max(0,1-(t-ts)/(1-ts)),0.80); }                         // taper to point
+
+/* draw one pick: center, size, hue, alpha, in-plane spin `rot`, 3D flip `flip` */
+function drawPick(cx,cy,size,hue,alpha,rot,flip){
+  if(alpha<=0||size<=0.05) return;
+  const halfH=size*8.0, halfW=size*6.2;
+  const cosF=Math.cos(flip), af=Math.abs(cosF), front=cosF>=0;
+  const cr=Math.cos(rot), sr=Math.sin(rot);
+  const front0=hsv(hue,0.85,1.0), back0=hsv(hue,0.95,0.52), edge0=hsv(hue,0.98,0.33), hi0=hsv(hue,0.22,1.0);
+  // edge-on: render the pick as a thin spun bar (its silhouette seen side-on)
+  if(af<0.08){ for(let s=-100;s<=100;s++){ const v=s/100, t=(v+1)/2, hw=pickHalf(t);
+      if(hw<=0) continue; const b=v*halfH, dx=-b*sr, dy=b*cr;
+      putA(cx+dx,cy+dy, edge0[0],edge0[1],edge0[2], alpha); }
+    return; }
+  const bb=Math.ceil(halfH+2);
+  for(let sy=Math.floor(cy-bb);sy<=Math.ceil(cy+bb);sy++) for(let sx=Math.floor(cx-bb);sx<=Math.ceil(cx+bb);sx++){
+    const dx=sx-cx, dy=sy-cy;
+    const a=dx*cr+dy*sr, b=-dx*sr+dy*cr;          // into spin-local axes
+    const v=b/halfH; if(v<-1||v>1) continue;
+    const u=a/(halfW*af); if(u<-1||u>1) continue; // undo 3D foreshortening
+    const t=(v+1)/2, half=pickHalf(t); const au=Math.abs(u);
+    if(au>half) continue;
+    const rim = (half-au) < 0.20 || v<-0.90 || v>0.95;        // dark rounded rim
+    let col = rim ? edge0 : (front?front0:back0);
+    if(front && !rim && u>-0.62 && u<-0.12 && t>0.14 && t<0.5) col=hi0;   // specular shine on front
+    putA(sx,sy, col[0],col[1],col[2], alpha);
+  }
+}
+function sparkle(cx,cy,s,hue,alpha){ if(s<0.5||alpha<=0)return; const [r,g,b]=hsv(hue,0.3,1.0), S=Math.round(s);
+  for(let k=-S;k<=S;k++){ const f=1-Math.abs(k)/(S+1); putA(cx+k,cy,r,g,b,alpha*f); putA(cx,cy+k,r,g,b,alpha*f); }
+  putA(cx,cy,255,255,255,alpha); }
+function drawRing(cx,cy,r,hue,alpha){ if(r<0.5||alpha<=0)return; const [R,G,B]=hsv(hue,0.5,1.0), n=Math.max(8,(2*Math.PI*r)|0);
+  for(let i=0;i<n;i++){ const a=i/n*2*Math.PI; putA(cx+Math.cos(a)*r,cy+Math.sin(a)*r,R,G,B,alpha); } }
+
+/* ---- the field : picks pop in, tumble up, flip, fade out (seamless loop) -- */
+const PICKS=[]; (function(){ const R=mulberry(7321); const n=20;
+  for(let i=0;i<n;i++){
+    const scale=0.75 + R()*R()*1.15;                  // z-depth sizes (chunkier)
+    const riseDist=20 + R()*55;
+    const topPad=26 + 26*scale;
+    const y0=Math.min(H-22, riseDist+topPad + R()*Math.max(10,H-riseDist-topPad-46));
+    PICKS.push({
+      x0: Math.round(18 + ((i+R())/n)*(W-36)), y0, scale, riseDist,
+      hue:(i/n + R()*0.1)%1,                           // spread across the rainbow
+      phase:R(), cyc: R()<0.3?2:1,
+      swayA: 2+R()*6, swayK:1+(R()*2|0), swayPh:R()*6.283,
+      rot0:R()*6.283, rotK:(R()<0.5?-1:1)*(1+(R()*2|0)),  // in-plane spin speed/dir
+      flip0:R()*6.283, flipK:(R()<0.5?-1:1)*(2+(R()*2|0)), // 3D flip speed/dir (faster)
+      hueDrift: R()*0.12,
+    });
+  }
+})();
+
+const B=0.14, P=0.20;
+function render(p){
+  clearT();
+  const list=PICKS.map(k=>({k, life:((p*k.cyc+k.phase)%1+1)%1})).sort((a,b)=>a.k.scale-b.k.scale);
+  for(const {k,life} of list){
+    const sc=k.scale;
+    const y=k.y0 - k.riseDist*life;
+    const x=k.x0 + sc*k.swayA*Math.sin(life*2*Math.PI*k.swayK + k.swayPh);
+    const rot = k.rot0 + k.rotK*life*2*Math.PI;        // tumble (in-plane)
+    const flip= k.flip0 + k.flipK*life*2*Math.PI;      // 3D flip
+    const hue=(k.hue + k.hueDrift*life)%1;
+    const baseA=0.72 + 0.28*Math.min(1,(sc-0.6)/0.85);
+
+    if(life<B){                                         // POP IN from nothing
+      const pr=life/B, ease=1-(1-pr)*(1-pr);
+      const s=sc*(pr<0.6?ease*1.15:1.15-(pr-0.6)/0.4*0.15);
+      drawRing(x,y,(1+pr*6)*sc,hue,(1-pr)*0.75);
+      sparkle(x,y,3.5*sc*(1-pr),hue,(1-pr)*0.85);
+      drawPick(x,y,s,hue,Math.min(1,pr*1.7)*baseA,rot,flip);
+    } else if(life>1-P){                               // TUMBLE AWAY + fade out
+      const pr=(life-(1-P))/P;
+      drawPick(x,y, sc*(1-0.35*pr), hue, baseA*(1-pr), rot, flip);
+      if(pr<0.3) sparkle(x,y,3*sc*(1-pr*3),hue,(1-pr*3)*0.6);
+    } else {                                           // TUMBLE
+      drawPick(x,y,sc,hue,baseA,rot,flip);
+    }
+  }
+  return buf;
+}
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  const LOOP=5.0; let t0=0;
+  function frame(ts){ if(!t0)t0=ts; const p=(((ts-t0)*0.001)%LOOP)/LOOP;
+    ctx.putImageData(new ImageData(render(p),W,H),0,0); requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

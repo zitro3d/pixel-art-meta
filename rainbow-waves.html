@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Rainbow Music Waves | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;background:#07070d;display:flex;align-items:center;justify-content:center;
+    font:12px ui-monospace,Menlo,Consolas,monospace;color:#9aa;}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:12px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges;
+    width:min(94vw,1000px); height:auto; background:#05050b; border-radius:6px;
+    box-shadow:0 0 50px #1a0f3a, 0 0 120px #05050b; }
+  .cap{letter-spacing:3px;font-size:11px;opacity:.7;text-transform:uppercase}
+</style>
+</head>
+<body>
+  <div class="stage">
+    <canvas id="c" width="208" height="112"></canvas>
+    <div class="cap">rainbow music waves · glowing visualizer · transparent</div>
+  </div>
+
+<script>
+/* A glowing rainbow music-wave visualizer: twin waveform lines weave above and
+   below the axis, driven by layered sines and a 4-beat pulse so the whole thing
+   bounces to the "music". Hue scrolls across the width; an additive glow buffer
+   gives the soft neon bloom with a white-hot core. Seamless loop, transparent.
+   208x112 virtual canvas, integer-scaled, no smoothing. */
+const W=208, H=112, CY=56;
+const FR=new Float32Array(W*H), FG=new Float32Array(W*H), FB=new Float32Array(W*H), FA=new Float32Array(W*H);
+const buf=new Uint8ClampedArray(W*H*4);
+
+function hsv(h,s,v){ h=(h%1+1)%1; const i=Math.floor(h*6), f=h*6-i,
+  p=v*(1-s), q=v*(1-f*s), t=v*(1-(1-f)*s); let r,g,b;
+  switch(i%6){ case 0:r=v;g=t;b=p;break; case 1:r=q;g=v;b=p;break; case 2:r=p;g=v;b=t;break;
+    case 3:r=p;g=q;b=v;break; case 4:r=t;g=p;b=v;break; default:r=v;g=p;b=q; }
+  return [r*255,g*255,b*255]; }
+// max-blend a glowing sample into the buffers (keeps hue, no additive wash-out)
+function glowPix(x,y,r,g,b,a){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H)return; const i=y*W+x;
+  if(r>FR[i])FR[i]=r; if(g>FG[i])FG[i]=g; if(b>FB[i])FB[i]=b; if(a>FA[i])FA[i]=a; }
+
+/* rhythmic 4-beat envelope (downbeats on 0 & 0.5), periodic in ph */
+function bump(ph,c,w){ let d=Math.abs(((ph-c)%1+1)%1); d=Math.min(d,1-d); return Math.exp(-d*d/(2*w*w)); }
+function beatEnv(ph){ return Math.min(1.25, 0.22 + 0.9*(
+  bump(ph,0,0.05)*1.0 + bump(ph,0.25,0.055)*0.65 + bump(ph,0.5,0.05)*0.95 + bump(ph,0.75,0.055)*0.65) ); }
+
+/* layered-sine wave amplitude at column x (px, signed), scrolls with ph */
+function ampFn(x,ph,beat){ const s=ph*2*Math.PI;
+  const w = 0.55*Math.sin(x*0.11  + s*2)
+          + 0.30*Math.sin(x*0.055 - s*3 + 1.3)
+          + 0.18*Math.sin(x*0.19  + s*5 + 2.0);
+  return w*(4 + 34*beat); }
+
+const SIG=2.4, SIG2=2*SIG*SIG, RAD=7;
+function render(ph){
+  FR.fill(0);FG.fill(0);FB.fill(0);FA.fill(0);
+  const beat=beatEnv(ph);
+  // soft central baseline that flashes on the beat
+  for(let x=0;x<W;x++){ const hue=((x/W) + ph)%1, [br,bg,bb]=hsv(hue,0.8,1);
+    for(let dy=-2;dy<=2;dy++){ const g=Math.exp(-dy*dy/2)*0.18*(0.4+0.6*beat);
+      glowPix(x,CY+dy, br*g,bg*g,bb*g, g); } }
+  // twin weaving waveform lines (mirror of each other), glowing, rainbow along x
+  for(let x=0;x<W;x++){
+    const A=ampFn(x,ph,beat), hue=((x/W) + ph)%1;
+    const [cr,cg,cb]=hsv(hue,0.9,1.0);
+    for(const ly of [CY-A, CY+A]){
+      const y0=Math.max(0,Math.floor(ly-RAD)), y1=Math.min(H-1,Math.ceil(ly+RAD));
+      for(let y=y0;y<=y1;y++){ const d=y-ly, g=Math.exp(-d*d/SIG2);
+        const inten=g*(0.5+0.5*beat);
+        const core=Math.pow(g,3)*0.85;                       // white-hot centre of the line
+        const pr=cr*(1-core)+255*core, pg=cg*(1-core)+255*core, pb=cb*(1-core)+255*core;
+        glowPix(x,y, pr*inten, pg*inten, pb*inten, Math.min(1,inten*1.15)); }
+    }
+  }
+  // crest sparkles on strong beats — little rising glints at the wave peaks (fun)
+  if(beat>0.7){ for(let x=6;x<W-6;x+=1){ const A=ampFn(x,ph,beat), Al=ampFn(x-1,ph,beat), Ar=ampFn(x+1,ph,beat);
+    if(Math.abs(A)>Math.abs(Al) && Math.abs(A)>=Math.abs(Ar) && Math.abs(A)>18){
+      const hue=((x/W)+ph+0.5)%1, [sr,sg,sb]=hsv(hue,0.25,1), yy=CY-A-2;
+      glowPix(x,yy,sr,sg,sb,0.9); glowPix(x,yy-1,sr*0.6,sg*0.6,sb*0.6,0.5);
+      const yy2=CY+A+2; glowPix(x,yy2,sr,sg,sb,0.9); glowPix(x,yy2+1,sr*0.6,sg*0.6,sb*0.6,0.5); } } }
+  // resolve glow buffers -> RGBA (filmic-ish soft clip keeps the bloom smooth)
+  for(let i=0;i<W*H;i++){
+    const r=1-Math.exp(-FR[i]/255*1.5), g=1-Math.exp(-FG[i]/255*1.5), b=1-Math.exp(-FB[i]/255*1.5);
+    buf[i*4]=r*255; buf[i*4+1]=g*255; buf[i*4+2]=b*255; buf[i*4+3]=Math.min(1,FA[i])*255;
+  }
+  return buf;
+}
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('c'); const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  const LOOP=3.0; let t0=0;
+  function frame(ts){ if(!t0)t0=ts; const ph=(((ts-t0)*0.001)%LOOP)/LOOP;
+    ctx.putImageData(new ImageData(render(ph),W,H),0,0); requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

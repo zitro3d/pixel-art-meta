@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Arcane Electric Burst | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;
+    background:#0a0e1a;
+    background-image:
+      linear-gradient(45deg,#0d1220 25%,transparent 25%,transparent 75%,#0d1220 75%),
+      linear-gradient(45deg,#0d1220 25%,transparent 25%,transparent 75%,#0d1220 75%);
+    background-size:28px 28px; background-position:0 0,14px 14px;}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:88vh; width:auto; }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+<script>
+/* ARCANE ELECTRIC BURST — a fireball-style explosion made of electricity.
+   Additive HDR light (turbulent core + radial arcs regenerated each frame +
+   expanding shock rings + orbiting violet runes + flying sparks) -> filmic
+   tonemap -> alpha from brightness, so it composites on transparent bg.
+   Blue family, hotter/cooler tones + an arcane violet accent. */
+const W=120, H=120, CX=60, CY=60, N=W*H;
+const acc=new Float32Array(N*3);
+let RNG=Math.random;
+
+const WHITE=[1,1,1], PALE=[.62,.95,1], CYAN=[.32,.85,1], BLUE=[.12,.42,1], DEEP=[.06,.22,.85], VIOLET=[.55,.32,1], MAG=[.78,.55,1], HOT=[1,.93,.82];
+const CYCLE=3.8;
+function mulberry32(a){ return function(){ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+/* noise */
+function hash(x,y){ let n=(x|0)*374761393+(y|0)*668265263; n=(n^(n>>13))*1274126177; return ((n^(n>>16))>>>0)/4294967296; }
+function vn(x,y){ const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,tl=hash(xi,yi),tr=hash(xi+1,yi),bl=hash(xi,yi+1),br=hash(xi+1,yi+1),u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf); return tl*(1-u)*(1-v)+tr*u*(1-v)+bl*(1-u)*v+br*u*v; }
+function fbm(x,y){ let s=0,a=.5,f=1; for(let i=0;i<4;i++){s+=a*vn(x*f,y*f);f*=2;a*=.5;} return s; }
+
+function add(x,y,r,g,b){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H)return; const i=(y*W+x)*3; acc[i]+=r;acc[i+1]+=g;acc[i+2]+=b; }
+function glow(cx,cy,rad,c,inten){ const x0=Math.max(0,(cx-rad)|0),x1=Math.min(W-1,(cx+rad)|0),y0=Math.max(0,(cy-rad)|0),y1=Math.min(H-1,(cy+rad)|0);
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){ const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy); if(d>rad)continue; let f=1-d/rad; f*=f; add(x,y,c[0]*f*inten,c[1]*f*inten,c[2]*f*inten); } }
+
+function arc(x0,y0,x1,y1,disp,col,inten,depth){
+  depth=depth===undefined?1:depth;
+  let pts=[[x0,y0],[x1,y1]];
+  for(let it=0;it<5;it++){ const np=[];
+    for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1]; np.push(a);
+      const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,nx=-(b[1]-a[1]),ny=(b[0]-a[0]),nl=Math.hypot(nx,ny)||1,o=(RNG()*2-1)*disp;
+      np.push([mx+nx/nl*o,my+ny/nl*o]); }
+    np.push(pts[pts.length-1]); pts=np; disp*=0.55; }
+  const forks=[];
+  for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]),S=Math.ceil(L);
+    for(let s=0;s<=S;s++){ const k=s/S,x=a[0]+(b[0]-a[0])*k,y=a[1]+(b[1]-a[1])*k;
+      add(x,y,col[0]*1.7*inten,col[1]*1.7*inten,col[2]*2.1*inten);
+      add(x,y,PALE[0]*0.16*inten,PALE[1]*0.16*inten,PALE[2]*0.18*inten);
+      if(depth>0&&RNG()<0.045) forks.push([x,y]); } }
+  for(const f of forks) arc(f[0],f[1], f[0]+(RNG()*12-6), f[1]+(RNG()*12-6), 2, col, inten*0.55, depth-1);
+}
+
+/* spark particles */
+let P=[];
+function frame(t,dt){
+  acc.fill(0);
+  const p=(t%CYCLE)/CYCLE;
+  const Rmax=52;
+  let R, fade=1;
+  if(p<0.16){ R=8*(p/0.16); } else { const u=Math.min(1,(p-0.16)/0.60); R=8+(Rmax-8)*(1-(1-u)*(1-u)); }
+  if(p>0.80) fade=Math.max(0,1-(p-0.80)/0.20);
+  const flash=Math.max(0, 1-Math.abs(p-0.20)/0.12);      // detonation flash window
+
+  // faint arcane ambient haze
+  // (kept subtle so transparency stays clean)
+
+  // ---- charge gather (before detonation) ----
+  if(p<0.18){
+    const g=p/0.18;
+    for(let i=0;i<14;i++){ const a=RNG()*6.283, r=(1-g)*40*(0.5+RNG()*0.6);
+      glow(CX+Math.cos(a)*r, CY+Math.sin(a)*r, 1.6, RNG()<0.5?CYAN:VIOLET, 0.5*g); }
+    glow(CX,CY, 4+6*g, WHITE, 0.5*g);
+  }
+
+  if(p>=0.16){
+    // ---- turbulent electric fireball core ----
+    const coreI=Math.max(0, 0.85 - (p-0.16)*1.4)*fade;
+    if(coreI>0){
+      const cr=R*0.62;
+      for(let y=(CY-cr)|0;y<=CY+cr;y++)for(let x=(CX-cr)|0;x<=CX+cr;x++){
+        const dx=x-CX,dy=y-CY,d=Math.sqrt(dx*dx+dy*dy); if(d>cr)continue;
+        const n=0.45+0.85*fbm(x*0.11+t*1.0, y*0.11-t*0.7);
+        let f=(1-d/cr); f*=f*n;
+        const tt=d/cr; const col= tt<0.12?CYAN : tt<0.34?BLUE : tt<0.62?VIOLET : DEEP;
+        add(x,y,col[0]*f*coreI, col[1]*f*coreI, col[2]*f*coreI);
+      }
+      glow(CX,CY, R*0.30, CYAN, coreI*0.4);
+      glow(CX,CY, R*1.2, DEEP, 0.42*fade);                  // deep-blue field aura
+      glow(CX,CY, R*0.85, VIOLET, 0.22*fade);               // violet inner field
+    }
+
+    // ---- concentrated HEATED core (molten heart, pulsing) ----
+    const heat=(0.72+0.28*Math.sin(t*4))*fade;
+    glow(CX,CY, 11, BLUE,  0.55*heat);
+    glow(CX,CY, 6.5, CYAN, 0.95*heat);
+    glow(CX,CY, 3.5, PALE, 1.05*heat);
+    glow(CX,CY, 1.8, HOT,  1.25*heat);                      // tiny warm-white hot point
+    add(CX,CY, HOT[0]*1.3,HOT[1]*1.2,HOT[2]*1.1);
+
+    // ---- detonation flash ----
+    if(flash>0){ glow(CX,CY, Rmax*0.95, BLUE, flash*0.5); glow(CX,CY, 24, CYAN, flash*0.55); }
+
+    // ---- expanding shock rings (energy fields), slow & smooth ----
+    for(const rk of [1.0, 0.66]){
+      const rr=R*rk; const col= rk>0.8?CYAN:BLUE;
+      for(let deg=0;deg<360;deg+=4){ const a=deg*Math.PI/180 + t*(rk>0.8?0.18:-0.26);
+        const wob=1+0.06*Math.sin(deg*0.7+t*2);
+        glow(CX+Math.cos(a)*rr*wob, CY+Math.sin(a)*rr*wob, 1.7, col, 0.5*fade); }
+    }
+
+    // ---- radial electric arcs: evenly-spaced spokes, refreshed at a
+    //      controlled rate (not every frame) so it reads steady, not frantic ----
+    const r=mulberry32((Math.floor(t*6)*2654435761)>>>0);
+    RNG=r;
+    const nA=9;
+    for(let i=0;i<nA;i++){ const a=(i/nA)*6.283 + (r()*2-1)*0.22, len=R*(0.72+r()*0.22), rr=r();
+      const col=rr<0.5?CYAN : rr<0.8?BLUE : VIOLET;
+      const ex=CX+Math.cos(a)*len, ey=CY+Math.sin(a)*len;
+      arc(CX,CY, ex, ey, 2.4, col, 0.85*fade, 1);           // depth 1 -> small tendrils burst off
+      // a deliberate tendril forking from the outer half of each spoke
+      const tf=0.55+r()*0.3, bx=CX+(ex-CX)*tf, by=CY+(ey-CY)*tf;
+      const ta=a + (r()<0.5?-1:1)*(0.5+r()*0.5), tl=len*(0.25+r()*0.25);
+      arc(bx,by, bx+Math.cos(ta)*tl, by+Math.sin(ta)*tl, 2.0, col, 0.7*fade, 0); }
+    RNG=Math.random;
+
+    // ---- arcane violet field ring (slow) ----
+    for(let deg=0;deg<360;deg+=6){ const a=deg*Math.PI/180 - t*0.35, rr=R*0.92*(1+0.04*Math.sin(deg*0.5+t*1.6));
+      glow(CX+Math.cos(a)*rr, CY+Math.sin(a)*rr, 1.5, VIOLET, 0.40*fade); }
+
+    // ---- orbiting arcane runes (violet magic), slow rotation ----
+    const nR=8, rot=t*0.7;
+    for(let i=0;i<nR;i++){ const a=rot+i*(6.283/nR), rr=R*0.80;
+      const x=CX+Math.cos(a)*rr, y=CY+Math.sin(a)*rr;
+      glow(x,y,2.6, MAG, 1.0*fade); add(x,y, VIOLET[0]*0.5*fade,VIOLET[1]*0.5*fade,VIOLET[2]*0.6*fade); }
+
+    // ---- spark particles (sparse) ----
+    if(p<0.6){ const ns=(1+4*flash)|0; for(let i=0;i<ns;i++){ const a=Math.random()*6.283, sp=0.6+Math.random()*1.6;
+      P.push({x:CX,y:CY,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0,max:16+Math.random()*18}); } }
+  }
+  // update sparks
+  const nx=[];
+  for(const s of P){ s.life++; s.x+=s.vx; s.y+=s.vy; s.vx*=0.94; s.vy*=0.94; const lf=1-s.life/s.max; if(lf<=0)continue;
+    const c= lf>0.6?CYAN: lf>0.3?BLUE:VIOLET; add(s.x,s.y,c[0]*lf*1.1,c[1]*lf*1.1,c[2]*lf*1.2); nx.push(s); }
+  P = nx.length>900?nx.slice(nx.length-900):nx;
+
+  // ---- compose: tonemap + alpha from brightness ----
+  const img=OUT;
+  for(let i=0;i<N;i++){ let r=acc[i*3],g=acc[i*3+1],b=acc[i*3+2];
+    r=1-Math.exp(-r*0.60); g=1-Math.exp(-g*0.70); b=1-Math.exp(-b*1.05);   // less R/G headroom -> bluer, less white
+    const lum=Math.max(r,g,b), a=Math.min(1,lum*2.6);
+    img[i*4]=r*255; img[i*4+1]=g*255; img[i*4+2]=b*255; img[i*4+3]=a*255; }
+  return img;
+}
+let OUT=new Uint8ClampedArray(N*4);
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('screen'); cvs.width=W; cvs.height=H;
+  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  let t0=0,last=0;
+  function tick(ts){ if(!t0){t0=ts;last=ts;} const t=(ts-t0)*0.001, dt=Math.min(0.05,(ts-last)*0.001); last=ts;
+    ctx.clearRect(0,0,W,H); ctx.putImageData(new ImageData(frame(t,dt),W,H),0,0); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fireworks | pixel-art-meta</title>
+<style>
+  html,body{margin:0;height:100%;background:#05060f;display:flex;align-items:center;justify-content:center}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:94vh; width:auto; }
+</style>
+</head>
+<body>
+  <canvas id="screen"></canvas>
+<script>
+/* FIREWORKS — colourful pixel-art firework show. Shells launch from the
+   bottom, burst into glowing multi-coloured sparks with trailing light
+   (a decaying accumulation buffer), gravity droop, and twinkle. Additive
+   glow -> filmic tonemap, composited over a starry night sky. */
+const W=224, H=152, N=W*H;
+const fire=new Float32Array(N*3);              // persistent light (gives trails)
+const sky=new Uint8ClampedArray(N*3);
+const stars=[];
+let RNG=Math.random;
+
+const PAL=[
+  [1,.19,.28],[1,.5,.14],[1,.82,.26],[.36,1,.42],[.28,.95,1],[.30,.5,1],[.66,.34,1],[1,.4,.78],[1,1,1]
+];
+function pick(){ return PAL[(RNG()*PAL.length)|0]; }
+
+function addpx(x,y,r,g,b){ x|=0;y|=0; if(x<0||y<0||x>=W||y>=H)return; const i=(y*W+x)*3; fire[i]+=r;fire[i+1]+=g;fire[i+2]+=b; }
+function spark(x,y,c,in_){ addpx(x,y,c[0]*in_,c[1]*in_,c[2]*in_);
+  const h=in_*0.35; addpx(x-1,y,c[0]*h,c[1]*h,c[2]*h); addpx(x+1,y,c[0]*h,c[1]*h,c[2]*h); addpx(x,y-1,c[0]*h,c[1]*h,c[2]*h); addpx(x,y+1,c[0]*h,c[1]*h,c[2]*h); }
+
+let shells=[], parts=[], launchT=0;
+
+function launch(){
+  const x=20+RNG()*(W-40);
+  const apex=24+RNG()*54;                       // burst height
+  const vy=-(Math.sqrt(2*46*(H-apex)));         // velocity to roughly reach apex under gravity
+  const multi=RNG()<0.4;
+  shells.push({ x, y:H-2, vx:(RNG()*2-1)*4, vy, col:[1,.9,.6], type:(RNG()*4)|0, hue:pick(), hue2:pick(), multi });
+}
+function burst(s){
+  const x=s.x, y=s.y, t=s.type;
+  const base = s.multi? null : s.hue;
+  const col=()=> base? [base[0]*(0.8+RNG()*0.2),base[1]*(0.85+RNG()*0.15),base[2]*(0.85+RNG()*0.15)] : pick();
+  if(t===0 || t===3){                            // chrysanthemum / peony
+    const n=70+(RNG()*40|0);
+    for(let i=0;i<n;i++){ const a=RNG()*6.283, sp=14+RNG()*30;
+      parts.push(mk(x,y,Math.cos(a)*sp,Math.sin(a)*sp,col(),1.3+RNG()*1.0,RNG()<0.35)); }
+  } else if(t===1){                              // ring
+    const n=56; const c=col();
+    for(let i=0;i<n;i++){ const a=i/n*6.283, sp=26+RNG()*4;
+      parts.push(mk(x,y,Math.cos(a)*sp,Math.sin(a)*sp, s.multi?col():c,1.5+RNG()*0.5,RNG()<0.3)); }
+  } else {                                       // willow (droopy gold/warm)
+    const g=[1,.8,.35];
+    const n=54;
+    for(let i=0;i<n;i++){ const a=RNG()*6.283, sp=10+RNG()*16;
+      const p=mk(x,y,Math.cos(a)*sp,Math.sin(a)*sp*0.7,g,1.8+RNG()*1.0,RNG()<0.2); p.grav=1.7; parts.push(p); }
+  }
+  // bright flash at the burst core
+  for(let k=0;k<10;k++) spark(x,y,[1,1,1],1.4);
+}
+function mk(x,y,vx,vy,c,max,glit){ return {x,y,vx,vy,c,life:0,max,glit,grav:1}; }
+
+function frame(t,dt){
+  // trail persistence: fade the light buffer
+  const decay=Math.exp(-dt/0.16);
+  for(let i=0;i<fire.length;i++) fire[i]*=decay;
+
+  // launch new shells on a timer
+  launchT-=dt; if(launchT<=0 && shells.length<4){ launch(); launchT=0.5+RNG()*1.1; }
+
+  // shells rise (with sparkly trail) until they slow near apex -> burst
+  const ns=[];
+  for(const s of shells){ s.vy+=46*dt; s.x+=s.vx*dt; s.y+=s.vy*dt;
+    spark(s.x,s.y,s.col,0.9); if(RNG()<0.6) spark(s.x+(RNG()*2-1),s.y+1,[1,.6,.3],0.5);
+    if(s.vy>=-2){ burst(s); continue; }          // burst at apex
+    ns.push(s); }
+  shells=ns;
+
+  // burst particles
+  const np=[];
+  for(const p of parts){ p.life+=dt; p.vy+=46*p.grav*dt; p.vx*=Math.pow(0.5,dt); p.vy*=Math.pow(0.72,dt);
+    p.x+=p.vx*dt; p.y+=p.vy*dt;
+    const lf=1-p.life/p.max; if(lf<=0){ continue; }
+    let b = lf<0.16? lf/0.16 : Math.pow(lf,0.55);
+    if(p.glit && lf<0.6) b*= (RNG()<0.5?1.7:0.25);       // twinkle/glitter
+    spark(p.x,p.y,p.c, b*1.25);
+    np.push(p); }
+  parts=np;
+
+  // ---- compose: sky + tonemapped fire ----
+  const img=OUT;
+  for(let i=0;i<N;i++){
+    let r=fire[i*3],g=fire[i*3+1],b=fire[i*3+2];
+    r=1-Math.exp(-r*1.5); g=1-Math.exp(-g*1.5); b=1-Math.exp(-b*1.5);
+    img[i*4]=Math.min(255, sky[i*3]+r*255); img[i*4+1]=Math.min(255, sky[i*3+1]+g*255); img[i*4+2]=Math.min(255, sky[i*3+2]+b*255); img[i*4+3]=255;
+  }
+  // twinkling stars on top
+  for(const st of stars){ const tw=0.5+0.5*Math.sin(t*st.sp+st.ph); const v=(120+120*tw)|0; const i=(st.y*W+st.x)*4;
+    img[i]=Math.max(img[i],v); img[i+1]=Math.max(img[i+1],v); img[i+2]=Math.max(img[i+2],Math.min(255,v+20)); }
+  return img;
+}
+let OUT=new Uint8ClampedArray(N*4);
+
+function buildSky(){
+  for(let y=0;y<H;y++){ const t=y/H;
+    const r=(10+8*t)|0, g=(10+6*t)|0, b=(26+18*(1-t))|0;   // navy top, slightly lighter low
+    for(let x=0;x<W;x++){ const i=(y*W+x)*3; sky[i]=r; sky[i+1]=g; sky[i+2]=b; } }
+  stars.length=0;
+  for(let i=0;i<70;i++) stars.push({x:(RNG()*W)|0, y:(RNG()*H*0.75)|0, sp:1+RNG()*3, ph:RNG()*6.283});
+}
+
+if(typeof document!=='undefined'){
+  const cvs=document.getElementById('screen'); cvs.width=W; cvs.height=H;
+  const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+  buildSky();
+  let t0=0,last=0;
+  function tick(ts){ if(!t0){t0=ts;last=ts;} const t=(ts-t0)*0.001, dt=Math.min(0.05,(ts-last)*0.001); last=ts;
+    ctx.putImageData(new ImageData(frame(t,dt),W,H),0,0); requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

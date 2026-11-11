@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Arcane Whip — Purple Electric Fire | pixel-art-meta</title>
+<style>
+  html,body{margin:0;min-height:100%;color:#c9b2e8;font:13px ui-monospace,Menlo,Consolas,monospace;
+    background:#120c1e;
+    background-image:
+      linear-gradient(45deg,#0e0918 25%,transparent 25%,transparent 75%,#0e0918 75%),
+      linear-gradient(45deg,#0e0918 25%,transparent 25%,transparent 75%,#0e0918 75%);
+    background-size:24px 24px; background-position:0 0,12px 12px;}
+  h1{font-size:15px;color:#efe4ff;text-align:center;margin:16px 0 2px}
+  p.sub{text-align:center;margin:0 0 10px;color:#8f7ca8}
+  .row{display:flex;gap:14px;justify-content:center;align-items:flex-start;flex-wrap:wrap;padding:6px 14px 24px}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:6px}
+  canvas{ image-rendering:pixelated; image-rendering:crisp-edges; height:60vh; width:auto;
+    outline:1px solid rgba(200,160,255,.14); border-radius:3px; }
+  .lab{color:#d6b8ff;letter-spacing:1px}
+  .lab b{color:#fff}
+</style>
+</head>
+<body>
+  <h1>ARCANE WHIP — PURPLE ELECTRIC FIRE</h1>
+  <p class="sub">the coil grows &amp; sizzles outward, tendrils peel off &rarr; grow &rarr; dissipate — stinging electricity, then it re-forms</p>
+  <div class="row" id="row"></div>
+
+<script>
+/* Arcane whip: a coil of purple electric fire that GROWS outward (draws on
+   fast), SIZZLES / breaks up as it goes, throwing TENDRILS that peel off,
+   grow, then dissipate — then the whole thing dissipates and re-forms.
+   Additive purple glow + white-hot core -> tonemap -> alpha (transparent). */
+const GW=300, GH=300, CX=150, CY=150, LEN=122, MARGIN=8, N=GW*GH, CYCLE=2500;
+const acc=new Float32Array(N*3);
+const PURP=[.52,.16,1], VIOLET=[.74,.45,1], MAG=[.95,.5,1], WHITE=[1,1,1];
+
+const OPTS=[
+  {id:'A', name:'Coil',   coil:3.6, spawn:14, blen:13, disp:0.9, wob:1.0, thick:1},
+  {id:'B', name:'Lash',   coil:5.2, spawn:22, blen:16, disp:1.0, wob:1.25,thick:1},
+  {id:'C', name:'Serpent',coil:2.4, spawn:12, blen:14, disp:0.8, wob:0.9, thick:2},
+  {id:'D', name:'Storm',  coil:6.6, spawn:30, blen:14, disp:1.2, wob:1.45,thick:1},
+];
+
+function add(x,y,r,g,b){ x|=0;y|=0; if(x<MARGIN||y<MARGIN||x>=GW-MARGIN||y>=GH-MARGIN)return; const i=(y*GW+x)*3; acc[i]+=r;acc[i+1]+=g;acc[i+2]+=b; }
+function glow(cx,cy,rad,c,inten){ if(inten<=0)return; const x0=Math.max(0,(cx-rad)|0),x1=Math.min(GW-1,(cx+rad)|0),y0=Math.max(0,(cy-rad)|0),y1=Math.min(GH-1,(cy+rad)|0);
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){ const dx=x-cx,dy=y-cy,d=Math.sqrt(dx*dx+dy*dy); if(d>rad)continue; let f=1-d/rad; f*=f; add(x,y,c[0]*f*inten,c[1]*f*inten,c[2]*f*inten); } }
+function hashN(a,b){ let x=Math.sin(a*12.9898+b*78.233)*43758.5453; return x-Math.floor(x); }
+
+// the flowing whip coil (canvas points), evolving with time + rotation
+function whipPath(opt, t, rot){
+  const M=48, pts=[];
+  for(let i=0;i<=M;i++){ const u=i/M, r=u*LEN;
+    const a = rot + u*opt.coil + 0.5*Math.sin(u*3.0 + t*1.7) + 0.26*Math.sin(u*6.0 - t*1.2);
+    const tip = 0.2 + u*1.15;
+    const wob = opt.wob*( tip*(8*Math.sin(u*4.0+t*2.0)+4*Math.sin(u*8.0-t*1.5))
+                        + 5.0*Math.sin(u*22+t*6)+3.4*Math.sin(u*38-t*8)+2.2*Math.sin(u*60+t*11) );
+    const pa=a+Math.PI/2;
+    pts.push([ CX+Math.cos(a)*r+Math.cos(pa)*wob, CY+Math.sin(a)*r+Math.sin(pa)*wob ]);
+  }
+  return pts;
+}
+function stampSeg(a,b, coreC,glowC, coreW, glowR, inten){
+  const L=Math.hypot(b[0]-a[0],b[1]-a[1]),S=Math.max(1,Math.ceil(L));
+  for(let s=0;s<=S;s++){ const k=s/S,x=a[0]+(b[0]-a[0])*k,y=a[1]+(b[1]-a[1])*k;
+    glow(x,y, glowR*1.8, glowC, inten*0.16); glow(x,y, glowR, glowC, inten*0.5);
+    glow(x,y, coreW, WHITE, inten*0.9); glow(x,y, coreW*0.6, coreC, inten); } }
+// draw the whip revealed up to fraction giF, with fast sizzle + breakup + hot growing tip
+function drawWhip(path, giF, t, opt, fade){
+  const gi=giF*(path.length-1), seed=Math.floor(t*26), cw=opt.thick>=2?2.0:1.5;
+  for(let i=0;i<path.length-1 && i<=gi;i++){
+    if(hashN(i,seed)<0.10) continue;                              // breakup gaps -> sizzle
+    const fl=0.55+0.45*Math.sin(i*0.9+t*34);                      // fast flicker
+    const tipBoost=1+1.8*Math.max(0,1-(gi-i)/7);                  // white-hot at the growing tip
+    stampSeg(path[i],path[i+1], MAG,PURP, cw, 3.6, 1.15*fl*fade*tipBoost);
+  }
+  const tp=path[Math.max(0,Math.min(path.length-1,Math.round(gi)))], pz=0.7+0.3*Math.sin(t*40);
+  glow(tp[0],tp[1], 5.5, VIOLET, 0.9*fade*pz); glow(tp[0],tp[1],2.4,WHITE,1.3*fade*pz);
+}
+// a tendril's jagged LOCAL shape (points from origin along +X), tapered, seeded
+function tendrilLocal(len, disp, seed){
+  let s=seed>>>0; const rnd=()=>{ s^=s<<13;s^=s>>>17;s^=s<<5;s>>>=0; return s/4294967296; };
+  let pts=[[0,0],[len,0]];
+  for(let it=0;it<4;it++){ const np=[];
+    for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1]; np.push(a);
+      const mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2,nx=-(b[1]-a[1]),ny=(b[0]-a[0]),nl=Math.hypot(nx,ny)||1,o=(rnd()*2-1)*disp*(len/12);
+      np.push([mx+nx/nl*o,my+ny/nl*o]); }
+    np.push(pts[pts.length-1]); pts=np; }
+  const raw=[]; for(let i=0;i<pts.length-1;i++){ const a=pts[i],b=pts[i+1],L=Math.hypot(b[0]-a[0],b[1]-a[1]),S=Math.max(1,Math.ceil(L));
+    for(let k2=0;k2<=S;k2++){ const k=k2/S; raw.push([a[0]+(b[0]-a[0])*k, a[1]+(b[1]-a[1])*k]); } }
+  const outp=[]; for(let i=0;i<raw.length;i++){ const u=raw.length>1?i/(raw.length-1):0; if(u>0.5 && rnd()<(u-0.5)/0.5*0.85) continue; outp.push(raw[i]); }
+  return outp;
+}
+
+function makeStrike(opt){
+  const out=new Uint8ClampedArray(N*4);
+  let tends=[], embers=[], cyc0=null, lastNow=null, spawnAcc=0, seedCtr=(Math.random()*1e9)|0, phase=Math.random()*6.283;
+  return { out, advance(now){
+    if(cyc0===null){ cyc0=now; lastNow=now; }
+    const dt=Math.min(0.05,(now-lastNow)/1000); lastNow=now;
+    let cyc=now-cyc0; if(cyc>=CYCLE){ cyc0=now; cyc=0; tends=[]; embers=[]; }
+    const p=cyc/CYCLE, t=now*0.001+phase, rot=t*0.45, M=48;
+    let giF=1, fade=1;
+    if(p<0.55){ const u=p/0.55; giF=1-(1-u)*(1-u); }               // ease-out GROW
+    if(p>=0.80) fade=Math.max(0,1-(p-0.80)/0.20);                  // DISSIPATE
+    acc.fill(0);
+    const path=whipPath(opt,t,rot);
+    // magic core
+    const cl=0.6+0.4*Math.sin(t*4);
+    glow(CX,CY,9,PURP,0.5*cl*fade); glow(CX,CY,4.5,VIOLET,0.7*cl*fade); glow(CX,CY,2.2,WHITE,1.1*cl*fade);
+    // growing, sizzling whip
+    drawWhip(path, giF, t, opt, fade);
+
+    // spawn tendrils peeling off near the growth front (only while growing/holding)
+    if(p<0.82){ spawnAcc += dt*opt.spawn;
+      while(spawnAcc>=1){ spawnAcc-=1; if(tends.length>opt.spawn*2) break;
+        const u0=Math.max(0.12, giF*(0.35+Math.random()*0.63));
+        const len=opt.blen*(0.5+Math.random()*1.1), side=Math.random()<0.5?-1:1;
+        tends.push({ u0, side, off:(0.5+Math.random()*0.8), born:now, life:360+Math.random()*320, gT:170, fT:200,
+                     local:tendrilLocal(len, opt.disp, seedCtr++), jseed:(Math.random()*1e6)|0 }); }
+    }
+    // update + draw tendrils: grow then dissipate ("peel off")
+    const nt=[];
+    for(const td of tends){ const age=now-td.born; if(age>=td.life) continue;
+      const growF=Math.min(1, age/td.gT);
+      const fadeF = age>td.life-td.fT ? Math.max(0,1-(age-(td.life-td.fT))/td.fT) : 1;
+      const bright=growF*fadeF*fade; if(bright<=0.02){ nt.push(td); continue; }
+      const idx=Math.max(0,Math.min(path.length-2, Math.round(td.u0*(path.length-1))));
+      const ax=path[idx][0], ay=path[idx][1];
+      const tang=Math.atan2(path[idx+1][1]-ay, path[idx+1][0]-ax);
+      const ang=tang + td.side*td.off + 0.25*Math.sin(t*3+td.jseed);
+      const cs=Math.cos(ang), sn=Math.sin(ang), lim=(td.local.length*growF)|0;
+      for(let i=0;i<lim;i++){ const q=td.local[i];
+        const jx=0.5*Math.sin(i*0.8+t*40+td.jseed);                // sizzle jitter
+        const lx=q[0], ly=q[1]+jx;
+        const x=ax+lx*cs-ly*sn, y=ay+lx*sn+ly*cs;
+        glow(x,y,1.8,PURP,0.5*bright); add(x,y,WHITE[0]*0.75*bright,WHITE[1]*0.75*bright,WHITE[2]*0.75*bright); }
+      // sting spark at the growing tip
+      if(growF<1 && lim>0){ const q=td.local[Math.max(0,lim-1)]; const x=ax+q[0]*cs-q[1]*sn, y=ay+q[0]*sn+q[1]*cs; glow(x,y,2.2,WHITE,0.9*bright); }
+      nt.push(td);
+    }
+    tends=nt;
+
+    // a few electric-fire embers drifting off (sting)
+    if(fade>0.2 && embers.length<120){ for(let k=0;k<2;k++){ const pp=path[(6+Math.random()*(path.length*giF-8))|0]||path[6];
+      embers.push({x:pp[0],y:pp[1],vx:(Math.random()*2-1)*0.9,vy:(Math.random()*2-1)*0.9-0.2,life:0,max:14+Math.random()*16}); } }
+    const ne=[]; for(const e of embers){ e.life++; e.x+=e.vx; e.y+=e.vy; e.vy-=0.006; const lf=1-e.life/e.max; if(lf<=0)continue;
+      const c=lf>0.6?WHITE:lf>0.3?VIOLET:PURP; glow(e.x,e.y,1.5,c,0.55*lf*fade); ne.push(e); }
+    embers=ne;
+
+    // compose: purple-weighted tonemap + alpha
+    for(let i=0;i<N;i++){ let r=acc[i*3],g=acc[i*3+1],b=acc[i*3+2];
+      r=1-Math.exp(-r*1.05); g=1-Math.exp(-g*0.8); b=1-Math.exp(-b*1.5);
+      const a=Math.min(1,Math.max(r,g,b)*1.95);
+      out[i*4]=r*255; out[i*4+1]=g*255; out[i*4+2]=b*255; out[i*4+3]=a*255; }
+    return out;
+  } };
+}
+
+if(typeof document!=='undefined'){
+  const strikes=OPTS.map(o=>{
+    const cell=document.createElement('div'); cell.className='cell';
+    const cvs=document.createElement('canvas'); cvs.width=GW; cvs.height=GH; cell.appendChild(cvs);
+    const lab=document.createElement('div'); lab.className='lab'; lab.innerHTML=o.id+' · <b>'+o.name+'</b>'; cell.appendChild(lab);
+    document.getElementById('row').appendChild(cell);
+    const ctx=cvs.getContext('2d'); ctx.imageSmoothingEnabled=false;
+    return {s:makeStrike(o), ctx};
+  });
+  function frame(ts){ for(const o of strikes){ const buf=o.s.advance(ts); o.ctx.putImageData(new ImageData(buf,GW,GH),0,0); } requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>
